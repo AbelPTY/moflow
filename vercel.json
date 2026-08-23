@@ -1,0 +1,18 @@
+{
+  "crons": [
+    {
+      "path": "/api/sendPaymentReminders",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/sendPaymentReminders",
+      "schedule": "0 3 * * *"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

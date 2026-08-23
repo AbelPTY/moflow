@@ -1,0 +1,184 @@
+{
+  "rules": [
+    {
+    "id": "credit_card_payment_visa",
+      "matchAny": ["PAGO VISA", "PAYMENT - THANK YOU"],
+      "assign": { "category": "Credit Card Payment", "budgetBucket": "TRANSFERS", "is_transfer": true }
+    },
+    {
+    "id": "unfcu_loan_payment",
+      "matchAny": ["WITHDRAWAL LOAN PAYMENT", "WITHDRAWAL UNFCU LOAN"],
+      "assign": { "category": "Loan Payment", "budgetBucket": "DEBT_FUNDING", "is_transfer": true }
+    },
+    {
+      "id": "streaming_cloud_subscriptions",
+      "matchAny": ["NETFLIX", "AUDIBLE", "GOOGLE CLOUD", "GOOGLE *CLOUD", "GOOGLE *GOOGLE ONE", "GOOGLE ONE", "REAL-DEBRID"],
+      "assign": { "category": "Subscriptions", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "champro_shopping",
+      "matchAny": ["CHAMPRO"],
+      "assign": { "category": "Shopping", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "assa_auto_insurance",
+      "matchAny": ["ASSA AUTOMOVIL"],
+      "assign": { "category": "Insurance", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "banco_general_card_insurance",
+      "matchAny": ["SEGURO FRAUDE MENSUAL", "SEGURO DE DESGRAVAMEN", "ITBMS CARGO POR SEGURO"],
+      "assign": { "category": "Insurance", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "banco_general_payment_received",
+      "matchAny": ["GRACIAS POR SU PAGO"],
+      "assign": { "category": "Credit Card Payment", "budgetBucket": "TRANSFERS", "is_transfer": true }
+    },
+    {
+      "id": "atm_cash_withdrawal",
+      "matchAny": ["ATM-BANCO GENERAL", "RETIRO CUENTA DE AHORRO"],
+      "assign": { "category": "Cash Withdrawal", "budgetBucket": "TRANSFERS", "is_transfer": true }
+    },
+    {
+      "id": "panapass_toll",
+      "matchAny": ["APP PANAPASS"],
+      "assign": { "category": "Transportation", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "medical_reimbursement_incoming",
+      "matchAny": ["WORLDWIDE MEDICAL ASSURANCE"],
+      "assign": { "category": "Reimbursements", "budgetBucket": "INCOME", "is_transfer": false }
+    },
+    {
+      "id": "transfers_and_loans",
+      "matchAny": ["CREDITCARD PAYMENTS", "BALANCE TRANSFER", "OUTGOING WIRE"],
+      "assign": { "category": "Transfer", "budgetBucket": "TRANSFERS", "is_transfer": true }
+    },
+    {
+      "id": "education_cipfa",
+      "matchAny": ["ESCLAVAS", "COLEGIO"],
+      "assign": { "category": "Education", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "medical_health",
+      "matchAny": ["PEDIATRAS", "CLINICA", "HOSPITAL"],
+      "assign": { "category": "Medical/Health", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "groceries_artisan",
+      "matchAny": ["SUPER 99", "RIBA SMITH", "PRICESMART"],
+      "assign": { "category": "Groceries", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "work_expenses",
+      "matchAny": [],
+      "assign": { "category": "Work Expenses", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "basketball_crew",
+      "matchAny": ["BIRRIA", "BASKET", "BALONCESTO"],
+      "assign": { "category": "Sports", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "office_social",
+      "matchAny": ["CUMPLE", "DEGUSTACION", "ETNIA", "APORTE", "EVENTO", "COLEGA", "ALMUERZO"],
+      "assign": { "category": "Office/Social Events", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "shopping_lifestyle",
+      "matchAny": ["MUMUSO", "FACTORY FASHION", "BATH AND BODY", "FELIX B MADURO", "PMABOX", "RANTAN", "OFERTA", "UWATCH", "JINGYI", "YUNQIU"],
+      "assign": { "category": "Shopping", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "dining_out",
+      "matchAny": ["YOI KOREAN", "TONY ROMAS", "TIO SAM", "TIM HORTONS", "SLABON", "ROCK AND FOLK", "RAKIKI", "PUNTA ARENA", "PAUL BAKERY", "PAPA JOHNS", "SEGREDOS DA CARNE", "ORGANICA", "ONZE", "NATUPROS", "MCDONALDS", "MANSA", "LOS TARASCOS", "LES MECS", "CASA DE LAS FRUTAS", "JEFFEYS", "HAPPY SWEET DAY", "GELARTI", "FRIDAY S", "FIT MARKET", "DAIRY QUEEN", "CHUCK E CHEESE", "CHIPICHAPE", "CHICKEN FACTORY", "BOHO FOOD", "BOCADO", "ARTISANA", "ARROGANTE", "APPLEBEES", "PIZZAVERACE", "NIKOS", "TONO", "BREW COFFEE", "ROCKEFELLER", "VINI Y VINOS", "SI CHEN", "SALON DEL TE", "QI QING PAN", "MOMI", "DONDESTAN", "DONDESTANPTY", "KFC", "STARBUCKS"],
+      "assign": { "category": "Dining Out", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "fixed_needs_utilities",
+      "matchAny": ["NATURGY", "ENSA", "TERPEL", "PUMA", "DELTA", "GASOLINERA", "TRANSPORTE", "BUS ESCOLAR"],
+      "assign": { "category": "Household/Utilities", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "income_salary",
+      "matchAny": ["CREDIT INTEREST", "INTERES CUENTA DE AHORROS"],
+      "assign": { "category": "Income", "budgetBucket": "INCOME", "is_transfer": false }
+    },
+    {
+      "id": "groceries_rey",
+      "matchAny": ["REY 12 DE OCTUBRE", "REY SANTA MARIA", "REY COSTA DEL EST", "SUPERMERCADOS REY", "EL REY"],
+      "assign": { "category": "Groceries", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "membership_subscriptions",
+      "matchAny": ["MEMBRESIA MENSUAL", "MEMBRESÍA MENSUAL", "ITBMS - MEMBRESIA", "ITBMS - MEMBRESÍA"],
+      "assign": { "category": "Subscriptions", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "davivienda_card_insurance",
+      "matchAny": ["SEGURO DE PROTECCION DE SALDO", "SEGURO DE PROTECCIÓN DE SALDO"],
+      "assign": { "category": "Insurance", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "utilities_water",
+      "matchAny": ["IDAAN", "ALCANTARILLADO", "SERVICIO DE AGUA"],
+      "assign": { "category": "Household/Utilities", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "utilities_internet_cable",
+      "matchAny": ["SERVICIO DE INTERNET", "CABLE TV", "TELEFONIA Y CABLE", "SERVICIO CABLE", "MAS MOVIL SERVICIO", "CABLE AND WIRELESS"],
+      "assign": { "category": "Household/Utilities", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "groceries_market_purpose",
+      "matchAny": ["FRUTAS Y VEGETA", "COMPRAS FRUTAS", "SUPERMERCADO", "BOLSA AL CARRO"],
+      "assign": { "category": "Groceries", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "dining_casual_purpose",
+      "matchAny": ["BRUNCH", "CARNES ASADA", "COMIDA FUERA", "CHICHARRON"],
+      "assign": { "category": "Dining Out", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "vehicle_related",
+      "matchAny": ["BYD", "REPARACION MOTOR", "CERAMIC COAT"],
+      "assign": { "category": "Transportation", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "household_appliance_repair",
+      "matchAny": ["REPARACION NEVERA", "REPARACION COCINA"],
+      "assign": { "category": "Household/Utilities", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "ach_reversals",
+      "matchAny": ["RECHAZOS ACH"],
+      "assign": { "category": "Bank Adjustment", "budgetBucket": "TRANSFERS", "is_transfer": true }
+    },
+    {
+      "id": "cash_transfer_purpose",
+      "matchAny": ["TRANSFERENCIA DE CASH"],
+      "assign": { "category": "Transfer", "budgetBucket": "TRANSFERS", "is_transfer": true }
+    },
+    {
+      "id": "chicken_supplier",
+      "matchAny": ["PROCESADORA MONICA"],
+      "assign": { "category": "Groceries", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+   "id": "mom_reimbursement",
+      "matchAny": [],
+      "assign": { "category": "Reimbursements", "budgetBucket": "INCOME", "is_transfer": false }
+    },
+    {
+      "id": "dining_panama_specific",
+      "matchAny": ["BUFFET LA COSTA", "ATHENS PIZZA"],
+      "assign": { "category": "Dining Out", "budgetBucket": "WANTS", "is_transfer": false }
+    },
+    {
+      "id": "sysco_food_distributor",
+      "matchAny": ["SYSCO FOOD SERVICES"],
+      "assign": { "category": "Groceries", "budgetBucket": "NEEDS", "is_transfer": false }
+    }
+  ]
+}

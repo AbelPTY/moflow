@@ -1,0 +1,140 @@
+import React, { useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import Icon from '../AppIcon';
+
+// Beta sign-up is invite-gated: it only appears when VITE_SIGNUP_INVITE_CODE is
+// set, and the entered code must match. (Light client-side gate; keeps casual
+// visitors from registering, not a server-side control.)
+const INVITE_CODE = import.meta.env?.VITE_SIGNUP_INVITE_CODE;
+const SIGNUP_ENABLED = Boolean(INVITE_CODE);
+
+const inputCls =
+  'w-full px-3 py-2.5 border border-border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
+
+const LoginScreen = () => {
+  const { signIn, signUp, resetPassword } = useAuth();
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot'
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [invite, setInvite] = useState('');
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const switchMode = (m) => { setMode(m); setError(''); setInfo(''); };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setInfo('');
+    setLoading(true);
+    try {
+      if (mode === 'signin') {
+        const { error: err } = await signIn(email, password);
+        if (err) setError(err.message);
+      } else if (mode === 'forgot') {
+        const { error: err } = await resetPassword(email);
+        if (err) setError(err.message);
+        else setInfo(`If an account exists for ${email}, a reset link is on its way. Check your inbox.`);
+      } else if (mode === 'signup') {
+        if (!SIGNUP_ENABLED) {
+          setError('Sign-up is invite-only right now.');
+        } else if (invite.trim() !== INVITE_CODE) {
+          setError('Invalid invite code.');
+        } else {
+          const { data, error: err } = await signUp(email, password);
+          if (err) setError(err.message);
+          else if (data?.session) { /* auto-logged in; AuthProvider updates */ }
+          else {
+            setInfo(`Account created. Check ${email} to confirm your address, then sign in.`);
+            setMode('signin');
+            setPassword('');
+            setInvite('');
+          }
+        }
+      }
+    } catch {
+      setError('Something went wrong — check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const title = mode === 'signup' ? 'Create your account' : mode === 'forgot' ? 'Reset your password' : 'Welcome back';
+  const cta = loading ? 'Please wait…' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send reset link' : 'Sign in';
+  const sub = mode === 'forgot'
+    ? "We'll email you a secure link to set a new password."
+    : mode === 'signup'
+      ? 'Beta access — enter your invite code to join.'
+      : 'Sign in to continue.';
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-6">
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/20 mb-4">
+            <Icon name="DollarSign" size={28} />
+          </div>
+          <h1 className="text-2xl font-extrabold text-foreground">
+            Con<span className="text-blue-600">Plata</span>
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">Own your money — bills, cards, cash flow, goals.</p>
+        </div>
+
+        <div className="bg-card rounded-2xl shadow-xl border border-border p-7">
+          <h2 className="text-lg font-bold text-foreground mb-1">{title}</h2>
+          <p className="text-sm text-muted-foreground mb-5">{sub}</p>
+
+          {error && <div className="mb-4 bg-red-50 text-red-600 text-sm px-3 py-2.5 rounded-lg border border-red-100">{error}</div>}
+          {info && <div className="mb-4 bg-emerald-50 text-emerald-700 text-sm px-3 py-2.5 rounded-lg border border-emerald-100">{info}</div>}
+
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-muted-foreground mb-1">Email</label>
+              <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" className={inputCls} />
+            </div>
+
+            {mode !== 'forgot' && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-muted-foreground">Password</label>
+                  {mode === 'signin' && (
+                    <button type="button" onClick={() => switchMode('forgot')} className="text-xs font-semibold text-blue-600 hover:text-blue-700">Forgot?</button>
+                  )}
+                </div>
+                <input type="password" required autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={inputCls} />
+              </div>
+            )}
+
+            {mode === 'signup' && (
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">Invite code</label>
+                <input type="text" required value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="Your beta invite code" className={inputCls} />
+              </div>
+            )}
+
+            <button type="submit" disabled={loading} className="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {cta}
+            </button>
+          </form>
+
+          <div className="mt-5 text-center text-sm text-muted-foreground">
+            {mode === 'signin' && SIGNUP_ENABLED && (
+              <button onClick={() => switchMode('signup')} className="font-semibold text-blue-600 hover:text-blue-700">Have an invite? Create an account</button>
+            )}
+            {mode === 'signup' && (
+              <button onClick={() => switchMode('signin')} className="font-semibold text-blue-600 hover:text-blue-700">Already have an account? Sign in</button>
+            )}
+            {mode === 'forgot' && (
+              <button onClick={() => switchMode('signin')} className="font-semibold text-blue-600 hover:text-blue-700">← Back to sign in</button>
+            )}
+          </div>
+        </div>
+
+        <p className="text-center text-[11px] text-muted-foreground mt-5">Private beta · Your data is encrypted and only visible to you.</p>
+      </div>
+    </div>
+  );
+};
+
+export default LoginScreen;
