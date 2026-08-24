@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from './rateLimit.js';
+import { safeError } from '../server/safeError.js';
 
 // Reads a photo of a credit-card statement's payment summary and extracts the
 // figures the financing guard needs. Mirrors scanReceipt.js (Gemini vision,
@@ -66,7 +67,7 @@ export default async function handler(req, res) {
     const parsed = JSON.parse(responseText);
     return res.status(200).json(parsed);
   } catch (error) {
-    console.error('scanCardStatement error:', error);
+    console.error('scanCardStatement failed', safeError(error));
     return res.status(500).json({ error: 'Failed to process statement image' });
   }
 }

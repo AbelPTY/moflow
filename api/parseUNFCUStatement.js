@@ -3,6 +3,7 @@ import formidable from 'formidable';
 import fs from 'fs';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from './rateLimit.js';
+import { safeError } from '../server/safeError.js';
 
 export const config = {
   api: {
@@ -300,7 +301,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json(transactions);
   } catch (error) {
-    console.error('parseUNFCUStatement error:', error);
-    return res.status(500).json({ error: error?.message || 'Unknown error parsing UNFCU statement' });
+    console.error('parseUNFCUStatement failed', safeError(error));
+    return res.status(500).json({ error: 'Failed to parse UNFCU statement' });
   }
 }

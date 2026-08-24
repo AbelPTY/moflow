@@ -4,6 +4,7 @@ import formidable from 'formidable';
 import fs from 'fs';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from './rateLimit.js';
+import { safeError } from '../server/safeError.js';
 
 // Disable Vercel's default body parser so formidable can process the multipart/form-data stream
 export const config = {
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
       const { text } = await extractText(pdf, { mergePages: true });
       pdfText = text;
     } catch (e) {
-      console.error(e);
+      console.error('parsePdfStatement pdf decode failed', safeError(e));
       return res.status(400).json({ error: "Failed to parse PDF binary. Make sure the file is a valid PDF." });
     }
 
@@ -159,9 +160,7 @@ ${pdfText}
 
     return res.status(200).json(normalized);
   } catch (error) {
-    console.error('parsePdfStatement error:', error);
-    return res.status(500).json({
-      error: error?.message || 'Unknown PDF parsing error'
-    });
+    console.error('parsePdfStatement failed', safeError(error));
+    return res.status(500).json({ error: 'Failed to parse PDF statement' });
   }
 }

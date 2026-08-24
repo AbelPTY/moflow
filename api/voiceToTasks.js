@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from './rateLimit.js';
+import { safeError } from '../server/safeError.js';
 
 // Turns a spoken/typed money brain-dump into a categorized task list. The
 // browser does speech-to-text (Web Speech API) and sends the transcript here;
@@ -77,7 +78,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json(tasks);
   } catch (error) {
-    console.error('voiceToTasks error:', error);
+    console.error('voiceToTasks failed', safeError(error));
     return res.status(500).json({ error: 'Failed to process the note' });
   }
 }

@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from './rateLimit.js';
+import { safeError } from '../server/safeError.js';
 
 function normalizeAiRows(rows) {
   if (!Array.isArray(rows)) return [];
@@ -121,9 +122,7 @@ ${rawText}
 
     return res.status(200).json(normalized);
   } catch (error) {
-    console.error('parseStatement error:', error);
-    return res.status(500).json({
-      error: error?.message || 'Unknown parsing error'
-    });
+    console.error('parseStatement failed', safeError(error));
+    return res.status(500).json({ error: 'Failed to parse statement' });
   }
 }

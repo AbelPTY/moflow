@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from './rateLimit.js';
+import { safeError } from '../server/safeError.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -101,7 +102,7 @@ export default async function handler(req, res) {
     return res.status(200).json(parsedData);
 
   } catch (error) {
-    console.error("AI API Error:", error);
+    console.error('scanReceipt failed', safeError(error));
     return res.status(500).json({ error: 'Failed to process image' });
   }
 }
