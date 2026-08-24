@@ -38,13 +38,10 @@ export const AuthProvider = ({ children }) => {
     return await supabase.auth.signInWithPassword({ email, password });
   };
 
-  const signUp = async (email, password) => {
-    return await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: window.location.origin },
-    });
-  };
+  // Registration is server-enforced via POST /api/signup (invite validated
+  // server-side, IP rate-limited, and gated by the Supabase Before-User-Created
+  // Auth Hook). The client intentionally exposes NO direct supabase.auth.signUp
+  // path, so registration cannot bypass the server invite check.
 
   // Sends a reset link to the email; the link returns to the app and triggers
   // recovery mode, where updatePassword sets the new password.
@@ -70,7 +67,6 @@ export const AuthProvider = ({ children }) => {
     loading,
     recovery,
     signIn,
-    signUp,
     resetPassword,
     updatePassword,
     signOut,

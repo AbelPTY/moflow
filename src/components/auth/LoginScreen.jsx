@@ -2,17 +2,17 @@ import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import Icon from '../AppIcon';
 
-// Beta sign-up is invite-gated: it only appears when VITE_SIGNUP_INVITE_CODE is
-// set, and the entered code must match. (Light client-side gate; keeps casual
-// visitors from registering, not a server-side control.)
-const INVITE_CODE = import.meta.env?.VITE_SIGNUP_INVITE_CODE;
-const SIGNUP_ENABLED = Boolean(INVITE_CODE);
+// Beta sign-up is server-enforced: the browser only submits the invite code to
+// POST /api/signup, which validates it (never the browser). VITE_SIGNUP_ENABLED
+// is a NON-SECRET UI feature flag that only controls whether the sign-up link is
+// shown; it is not an authorization control. Defaults to enabled when unset.
+const SIGNUP_ENABLED = (import.meta.env?.VITE_SIGNUP_ENABLED ?? 'true') !== 'false';
 
 const inputCls =
   'w-full px-3 py-2.5 border border-border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
 
 const LoginScreen = () => {
-  const { signIn, signUp, resetPassword } = useAuth();
+  const { signIn, resetPassword } = useAuth();
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,20 +37,34 @@ const LoginScreen = () => {
         if (err) setError(err.message);
         else setInfo(`If an account exists for ${email}, a reset link is on its way. Check your inbox.`);
       } else if (mode === 'signup') {
-        if (!SIGNUP_ENABLED) {
-          setError('Sign-up is invite-only right now.');
-        } else if (invite.trim() !== INVITE_CODE) {
-          setError('Invalid invite code.');
+        // The browser never decides whether the invite is valid; it only submits
+        // it to the server, which enforces the invite and rate limits by IP.
+        let res;
+        try {
+          res = await fetch('/api/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, invite_code: invite }),
+          });
+        } catch {
+          setError('Something went wrong — check your connection and try again.');
+          return;
+        }
+
+        if (res.ok) {
+          // Email confirmation is on: prompt the user to confirm, then sign in.
+          setInfo(`Account created. Check ${email} to confirm your address, then sign in.`);
+          setMode('signin');
+          setPassword('');
+          setInvite(''); // never persisted; cleared from state after submit
+        } else if (res.status === 403) {
+          setError('That invite code is not valid.');
+        } else if (res.status === 429) {
+          setError('Too many attempts. Please try again later.');
+        } else if (res.status === 400) {
+          setError('Please enter a valid email and password.');
         } else {
-          const { data, error: err } = await signUp(email, password);
-          if (err) setError(err.message);
-          else if (data?.session) { /* auto-logged in; AuthProvider updates */ }
-          else {
-            setInfo(`Account created. Check ${email} to confirm your address, then sign in.`);
-            setMode('signin');
-            setPassword('');
-            setInvite('');
-          }
+          setError('Sign-up is temporarily unavailable. Please try again later.');
         }
       }
     } catch {

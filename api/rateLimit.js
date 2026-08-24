@@ -156,6 +156,11 @@ export const RATE_LIMIT_POLICIES = Object.freeze({
     user: Object.freeze({ limit: 12, windowSeconds: 600 }),
     ip: Object.freeze({ limit: 48, windowSeconds: 600 }),
   }),
+  // Unauthenticated signup: there is no verified user yet, so this policy is
+  // IP-ONLY (no user tier). Same durable RPC + HMAC IP-hash privacy model.
+  signup: Object.freeze({
+    ip: Object.freeze({ limit: 10, windowSeconds: 3600 }),
+  }),
 });
 
 let cachedServiceClient = null;
@@ -197,10 +202,13 @@ export async function applyRateLimit({ req, res, user, scope, supabase, ipSalt }
       supabase: client,
       scope,
       user,
-      userLimit: policy.user.limit,
-      userWindowSeconds: policy.user.windowSeconds,
-      ipLimit: policy.ip.limit,
-      ipWindowSeconds: policy.ip.windowSeconds,
+      // A policy may omit a tier (e.g. the unauthenticated `signup` scope has no
+      // user tier -> IP-only). Missing tiers pass undefined limits, which
+      // enforceRateLimit skips.
+      userLimit: policy.user ? policy.user.limit : undefined,
+      userWindowSeconds: policy.user ? policy.user.windowSeconds : undefined,
+      ipLimit: policy.ip ? policy.ip.limit : undefined,
+      ipWindowSeconds: policy.ip ? policy.ip.windowSeconds : undefined,
       req,
       ipSalt,
     });
