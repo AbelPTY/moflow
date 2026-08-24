@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
+import { applyRateLimit } from './rateLimit.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -8,6 +9,9 @@ export default async function handler(req, res) {
 
   const user = await requireUser(req, res);
   if (!user) return;
+
+  // Durable per-user + per-IP rate limit BEFORE any image decode / Gemini work.
+  if (!(await applyRateLimit({ req, res, user, scope: 'gemini_vision' }))) return;
 
   try {
     const { image } = req.body || {};

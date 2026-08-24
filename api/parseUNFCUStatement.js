@@ -2,6 +2,7 @@ import { extractText, getDocumentProxy } from 'unpdf';
 import formidable from 'formidable';
 import fs from 'fs';
 import { requireUser } from '../server/auth.js';
+import { applyRateLimit } from './rateLimit.js';
 
 export const config = {
   api: {
@@ -245,6 +246,10 @@ export default async function handler(req, res) {
   // reach the parser.
   const user = await requireUser(req, res);
   if (!user) return;
+
+  // Durable per-user + per-IP rate limit BEFORE formidable reads the multipart
+  // upload or any unpdf parsing begins.
+  if (!(await applyRateLimit({ req, res, user, scope: 'local_pdf' }))) return;
 
   try {
     const form = formidable({ multiples: false });

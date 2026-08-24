@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
+import { applyRateLimit } from './rateLimit.js';
 
 // Turns a spoken/typed money brain-dump into a categorized task list. The
 // browser does speech-to-text (Web Speech API) and sends the transcript here;
@@ -15,6 +16,9 @@ export default async function handler(req, res) {
 
   const user = await requireUser(req, res);
   if (!user) return;
+
+  // Durable per-user + per-IP rate limit BEFORE any Gemini work.
+  if (!(await applyRateLimit({ req, res, user, scope: 'gemini_text' }))) return;
 
   try {
     const { text, today } = req.body || {};
