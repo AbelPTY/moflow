@@ -7,9 +7,6 @@ import { supabase } from '../lib/supabase';
 // you carried that balance, and surface the running total. RLS scopes all rows
 // to the logged-in user.
 
-// Estimated monthly interest rate used for the "fees avoided" figure (~24% APR
-// is typical for Panamanian cards). It's a documented estimate, not a promise.
-const DEFAULT_MONTHLY_RATE = 0.02;
 
 const useCreditCards = () => {
   const [cards, setCards] = useState([]);
@@ -54,6 +51,8 @@ const useCreditCards = () => {
       statement_close_day: card.statement_close_day ? Number(card.statement_close_day) : null,
       due_day: card.due_day ? Number(card.due_day) : null,
       statement_balance: Number(card.statement_balance) || 0,
+      current_balance: Number(card.current_balance) || 0,
+      apr: Number(card.apr) || null,
       minimum_payment: Number(card.minimum_payment) || 0,
       statement_paid: !!card.statement_paid,
       updated_at: new Date().toISOString(),
@@ -83,7 +82,9 @@ const useCreditCards = () => {
     try {
       if (paid) {
         const bal = Number(card.statement_balance) || 0;
-        const interest = Math.round(bal * DEFAULT_MONTHLY_RATE * 100) / 100;
+        // Use the card's real APR when present; 24% is the documented fallback.
+        const monthlyRate = (Number(card.apr) || 24) / 100 / 12;
+        const interest = Math.round(bal * monthlyRate * 100) / 100;
         await supabase.from('fee_savings').insert({
           card_name: card.card_name || null,
           statement_balance: bal,

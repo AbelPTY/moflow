@@ -37,34 +37,52 @@ export default async function handler(req, res) {
       Extract the payment summary and return ONLY valid JSON, no markdown:
       {
         "card_name_hint": "<issuer/product name if clearly visible, else empty string>",
-        "statement_balance": <number, the total new balance owed this statement>,
+        "current_balance": <number, current total card balance if clearly visible, else 0>,
+        "statement_balance": <number, the balance due for this statement>,
         "minimum_payment": <number, the minimum payment due>,
+        "apr": <number, annual percentage rate as a percent such as 24.99, or null>,
         "due_day": <integer day-of-month 1-31 the payment is due, or null>,
         "statement_close_day": <integer day-of-month 1-31 the statement closes, or null>
       }
 
       Field-name hints (labels vary by bank/language):
-      - statement_balance: "Nuevo Saldo", "Saldo Actual", "Saldo Total", "Saldo del Estado de Cuenta", "New Balance", "Statement Balance", "Total Amount Due", "Balance".
+      - current_balance: "Current Balance", "Saldo Actual", "Saldo Corriente", "Balance Actual". Use only when the document clearly identifies it as the live/current account balance.
+      - statement_balance: "Nuevo Saldo", "Saldo del Estado de Cuenta", "New Balance", "Statement Balance", "Total Amount Due". Do NOT infer it from current_balance unless the document clearly states they are the same.
       - minimum_payment: "Pago Minimo", "Pago Mínimo", "Minimum Payment Due", "Minimum Amount Due".
+      - apr: "APR", "Annual Percentage Rate", "Tasa de Interes Anual", "Tasa de Interés Anual", "Tasa Anual", "Interest Rate". Return the annual percentage number only, e.g. 24.99.
       - due_day: from "Fecha de Pago", "Fecha Limite de Pago", "Fecha de Vencimiento", "Payment Due Date", "Due Date" -- return ONLY the day number.
       - statement_close_day: from "Fecha de Corte", "Fecha de Cierre", "Statement Date", "Closing Date", "Cierre" -- return ONLY the day number.
 
       Rules:
-      - Amounts are POSITIVE numbers (strip currency symbols and thousands separators).
+      - Amounts are POSITIVE numbers. Strip currency symbols and thousands separators.
+      - apr is a percentage number such as 24.99, not 0.2499.
       - due_day and statement_close_day are integers 1-31, or null if not visible.
-      - If a field is not visible, use 0 for amounts or null for the days.
+      - If current_balance is not clearly visible, use 0.
+      - If statement_balance is not clearly visible, use 0.
+      - If minimum_payment is not clearly visible, use 0.
+      - If apr is not clearly visible, use null.
+      - If due_day or statement_close_day is not visible, use null.
+      - Do not guess values that are not clearly supported by the image.
       - Return JSON only. No explanation.
     `;
 
     const imagePart = {
-      inlineData: { data: base64Data, mimeType: 'image/jpeg' },
+      inlineData: {
+        data: base64Data,
+        mimeType: 'image/jpeg',
+      },
     };
 
     const result = await model.generateContent([prompt, imagePart]);
+
     let responseText = result.response.text();
-    responseText = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    responseText = responseText
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
 
     const parsed = JSON.parse(responseText);
+
     return res.status(200).json(parsed);
   } catch (error) {
     console.error('scanCardStatement failed', safeError(error));
