@@ -11,422 +11,1070 @@ export const config = {
   },
 };
 
-// IMPORTANT: unpdf flattens PDF pages into text with very few real line
-// breaks -- table rows that are visually stacked end up separated by a
-// single space, not a newline. Every pattern below is written assuming
-// NO reliable line structure exists, and was validated against real
-// production unpdf output (not just a local approximation).
-
-function cleanDescription(desc) {
-  return desc.replace(/\s*\$[\d,]+\.\d{2}\s*$/, '').trim();
-}
+// ============================================================
+// UNFCU STATEMENT PARSER
+//
+// Supports:
+// 1. Traditional UNFCU Visa statements.
+// 2. UNFCU Accounts Record / MiniSummary combined statements.
+// 3. Individual MiniSummary PDFs for Savings, Checking,
+//    Personal Loan, LOC, Membership Share or Visa.
+//
+// Important:
+// unpdf can flatten PDF tables into a single stream of text.
+// Therefore this parser does not depend on reliable line breaks.
+// ============================================================
 
 function parseMoney(text) {
-  return parseFloat(String(text).replace(/,/g, '').replace(/\$/g, '').trim()) || 0;
+  if (text === null || text === undefined) return 0;
+
+  const raw = String(text).trim();
+  const negative =
+    raw.includes('(') &&
+    raw.includes(')');
+
+  const cleaned = raw
+    .replace(/,/g, '')
+    .replace(/\$/g, '')
+    .replace(/[()]/g, '')
+    .trim();
+
+  const value = parseFloat(cleaned);
+
+  if (Number.isNaN(value)) return 0;
+
+  return negative
+    ? -Math.abs(value)
+    : value;
+}
+
+function cleanDescription(desc) {
+  return String(desc || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function last4(accountNumber) {
-  const digits = String(accountNumber || '').replace(/\D/g, '');
+  const digits = String(accountNumber || '')
+    .replace(/\D/g, '');
+
   return digits.slice(-4);
 }
 
-function canonicalUnfcuAccount(sectionName, accountNumber = '') {
-  const suffix = last4(accountNumber);
+function extractMaskedLast4(value) {
+  const text = String(value || '');
 
-  if (sectionName === 'Membership Share') return 'UNFCU Membership Share';
-  if (sectionName === 'Savings Account') return 'UNFCU Savings 0001';
-  if (sectionName === 'Checking Account') return 'UNFCU Checking 0002';
-  if (sectionName === 'Personal Loan') return 'UNFCU Personal Loan 7612';
+  const match =
+    text.match(/(\d{4})\s*$/);
 
-  if (sectionName === 'Checking Line of Credit') {
+  return match ? match[1] : '';
+}
+
+function canonicalUnfcuAccount(
+  sectionName,
+  accountNumber = ''
+) {
+  const suffix =
+    last4(accountNumber) ||
+    extractMaskedLast4(accountNumber);
+
+  if (sectionName === 'Membership Share') {
+    return 'UNFCU Membership Share';
+  }
+
+  if (sectionName === 'Savings Account') {
+    return suffix
+      ? `UNFCU Savings ${suffix}`
+      : 'UNFCU Savings';
+  }
+
+  if (sectionName === 'Checking Account') {
+    return suffix
+      ? `UNFCU Checking ${suffix}`
+      : 'UNFCU Checking';
+  }
+
+  if (sectionName === 'Personal Loan') {
+    return suffix
+      ? `UNFCU Personal Loan ${suffix}`
+      : 'UNFCU Personal Loan';
+  }
+
+  if (
+    sectionName ===
+    'Checking Line of Credit'
+  ) {
     return suffix
       ? `UNFCU Checking Line of Credit ${suffix}`
       : 'UNFCU Checking Line of Credit';
   }
 
+  if (
+    sectionName ===
+    'UNFCU Visa Elite'
+  ) {
+    return suffix
+      ? `UNFCU Visa Elite ${suffix}`
+      : 'UNFCU Visa Elite';
+  }
+
   return 'UNFCU';
 }
 
-function detectVisaAccountName(fullText) {
-  const match = fullText.match(/Account Number Ending In\s+(\d{4})/i);
-  const suffix = match ? match[1] : '';
+function normalizeDateParts(
+  day,
+  monthText,
+  year
+) {
+  const months = {
+    jan: '01',
+    feb: '02',
+    mar: '03',
+    apr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08',
+    sep: '09',
+    oct: '10',
+    nov: '11',
+    dec: '12',
+  };
 
-  if (!suffix || suffix === '5659') return 'UNFCU Visa Elite 5659';
+  const month =
+    months[
+      String(monthText || '')
+        .slice(0, 3)
+        .toLowerCase()
+    ];
 
-  return `UNFCU Visa ${suffix}`;
+  if (!month) return null;
+
+  return (
+    `${year}-` +
+    `${month}-` +
+    `${String(day).padStart(2, '0')}`
+  );
 }
 
-// --- UNFCU Visa / credit card statement ---
-// Validated directly against real production unpdf output: purchases are
-// positive in the source, payments negative (UNFCU's own text states "An
-// amount preceded by a minus sign (-) is a credit"). We flip both to match
-// this app's convention (expenses negative, credits/payments positive).
-function parseUnfcuVisaStatement(fullText) {
+function parseLongDate(text) {
+  const match = String(text || '').match(
+    /(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})/
+  );
+
+  if (!match) return null;
+
+  return normalizeDateParts(
+    match[1],
+    match[2],
+    match[3]
+  );
+}
+
+function makeTransaction({
+  date,
+  description,
+  reference = '',
+  amount,
+  accountName,
+}) {
+  const clean =
+    cleanDescription(description);
+
+  return {
+    date,
+    description_raw: clean,
+    merchant_extracted: clean,
+    reference:
+      reference
+        ? String(reference).trim()
+        : '',
+    amount,
+    account_name: accountName,
+    source_account: accountName,
+    source_institution: 'UNFCU',
+  };
+}
+
+// ============================================================
+// TRADITIONAL VISA STATEMENT
+// ============================================================
+
+function detectTraditionalVisaAccountName(
+  fullText
+) {
+  const match = fullText.match(
+    /Account Number Ending In\s+(\d{4})/i
+  );
+
+  if (match) {
+    return `UNFCU Visa Elite ${match[1]}`;
+  }
+
+  const masked = fullText.match(
+    /UNFCU Visa Elite\s+([0-9xX*]+)/
+  );
+
+  if (masked) {
+    const suffix =
+      extractMaskedLast4(masked[1]);
+
+    if (suffix) {
+      return `UNFCU Visa Elite ${suffix}`;
+    }
+  }
+
+  return 'UNFCU Visa Elite';
+}
+
+function parseTraditionalVisaStatement(
+  fullText
+) {
   const transactions = [];
-  const accountName = detectVisaAccountName(fullText);
+
+  const accountName =
+    detectTraditionalVisaAccountName(
+      fullText
+    );
 
   const yearMatch = fullText.match(
     /Statement Closing Date\s+\d{2}\/\d{2}\/(\d{4})/
   );
 
-  const statementYear = yearMatch
-    ? yearMatch[1]
-    : String(new Date().getFullYear());
+  const statementYear =
+    yearMatch
+      ? yearMatch[1]
+      : String(
+          new Date().getFullYear()
+        );
 
   const txnPattern =
     /(\d{2}\/\d{2})\s+(\d{2}\/\d{2})\s+(.+?)\s+([A-Z0-9]{10,})\s+(-?[\d,]+\.\d{2})/g;
 
-  let m;
+  let match;
 
-  while ((m = txnPattern.exec(fullText)) !== null) {
-    const [, , postDate, desc, ref, amountStr] = m;
-    const [mm, dd] = postDate.split('/');
-    const rawAmount = parseMoney(amountStr);
+  while (
+    (match =
+      txnPattern.exec(fullText)) !== null
+  ) {
+    const [
+      ,
+      ,
+      postDate,
+      desc,
+      ref,
+      amountText,
+    ] = match;
 
-    transactions.push({
-      date: `${statementYear}-${mm}-${dd}`,
-      description_raw: desc.trim(),
-      merchant_extracted: desc.trim(),
-      reference: ref,
-      amount: -rawAmount,
-      account_name: accountName,
-      source_account: accountName,
-      source_institution: 'UNFCU',
-    });
+    const [mm, dd] =
+      postDate.split('/');
+
+    const rawAmount =
+      parseMoney(amountText);
+
+    transactions.push(
+      makeTransaction({
+        date:
+          `${statementYear}-${mm}-${dd}`,
+        description: desc,
+        reference: ref,
+        amount: -rawAmount,
+        accountName,
+      })
+    );
   }
 
   const interestPattern =
     /(\d{2}\/\d{2})\s+\d{2}\/\d{2}\s+(Interest Charge on [A-Za-z ]+?)\s+(-?[\d,]+\.\d{2})/g;
 
-  while ((m = interestPattern.exec(fullText)) !== null) {
-    const [, date, desc, amountStr] = m;
-    const amt = parseMoney(amountStr);
+  while (
+    (match =
+      interestPattern.exec(
+        fullText
+      )) !== null
+  ) {
+    const [
+      ,
+      dateText,
+      desc,
+      amountText,
+    ] = match;
 
-    if (amt > 0) {
-      const [mm, dd] = date.split('/');
+    const amount =
+      Math.abs(
+        parseMoney(amountText)
+      );
 
-      transactions.push({
-        date: `${statementYear}-${mm}-${dd}`,
-        description_raw: desc.trim(),
-        merchant_extracted: desc.trim(),
-        reference: '',
-        amount: -amt,
-        account_name: accountName,
-        source_account: accountName,
-        source_institution: 'UNFCU',
-      });
-    }
+    if (amount === 0) continue;
+
+    const [mm, dd] =
+      dateText.split('/');
+
+    transactions.push(
+      makeTransaction({
+        date:
+          `${statementYear}-${mm}-${dd}`,
+        description: desc,
+        amount: -amount,
+        accountName,
+      })
+    );
   }
 
   return transactions;
 }
 
-// --- UNFCU General Statement (Membership Share, Savings, Checking, Loan, LOC) ---
-function parseUnfcuGeneralStatement(fullText) {
-  const depositTransactions = [];
-  const loanPayments = [];
+// ============================================================
+// ACCOUNTS RECORD / MINI SUMMARY
+// ============================================================
 
-  const sectionPattern =
-    /(Membership Share|Savings Account|Checking Account|Personal Loan|Checking Line of Credit) - (\d+)/g;
+function findMiniSummarySections(
+  fullText
+) {
+  const definitions = [
+    {
+      name: 'Savings Account',
+      regex:
+        /Savings Account\s+(\d{5,})/g,
+    },
+    {
+      name: 'Checking Account',
+      regex:
+        /Checking Account\s+(\d{5,})/g,
+    },
+    {
+      name: 'Membership Share',
+      regex:
+        /Membership Share(?=\s+(?:Date|Ending Balance|No Transactions))/g,
+    },
+    {
+      name:
+        'Checking Line of Credit',
+      regex:
+        /Checking Line of Credit\s+(\d{5,})/g,
+    },
+    {
+      name: 'Personal Loan',
+      regex:
+        /Personal Loan\s+(\d{5,})/g,
+    },
+    {
+      name: 'UNFCU Visa Elite',
+      regex:
+        /UNFCU Visa Elite\s+([0-9xX*]+)/g,
+    },
+  ];
 
-  const sections = [];
-  let sm;
+  const candidates = [];
 
-  while ((sm = sectionPattern.exec(fullText)) !== null) {
-    sections.push({
-      name: sm[1],
-      account: sm[2],
-      start: sm.index,
-    });
-  }
-
-  const extractDepositAccount = (
-    sectionText,
-    sectionName,
-    accountNumber
-  ) => {
-    const accountName = canonicalUnfcuAccount(
-      sectionName,
-      accountNumber
-    );
-
-    const activityIdx = sectionText.indexOf('Account Activity');
-
-    if (activityIdx === -1) return;
-
-    const activityText = sectionText.slice(activityIdx);
-
-    const chunks = activityText.split(
-      /(?=\d{2}\/\d{2}\/\d{4}\s)/
-    );
-
-    let prevBalance = null;
-
-    for (const rawChunk of chunks) {
-      const chunk = rawChunk.trim();
-
-      if (!chunk) continue;
-
-      const m = chunk.match(
-        /^(\d{2}\/\d{2}\/\d{4})\s+(.+)$/
-      );
-
-      if (!m) continue;
-
-      const [, date, rest] = m;
-
-      if (rest.includes('Beginning Balance')) {
-        const bm = rest.match(/\$([\d,]+\.\d{2})/);
-
-        if (bm) {
-          prevBalance = parseMoney(bm[1]);
-        }
-
-        continue;
-      }
-
-      if (
-        rest.includes('No activity this statement period')
-      ) {
-        continue;
-      }
-
-      if (rest.includes('Ending Balance')) {
-        continue;
-      }
-
-      const dollarMatches = [
-        ...rest.matchAll(/\$([\d,]+\.\d{2})/g),
-      ];
-
-      if (
-        dollarMatches.length > 0 &&
-        prevBalance !== null
-      ) {
-        const last =
-          dollarMatches[dollarMatches.length - 1];
-
-        const balance = parseMoney(last[1]);
-
-        const desc = cleanDescription(
-          rest.slice(0, last.index)
-        );
-
-        const signedAmount =
-          Math.round(
-            (balance - prevBalance) * 100
-          ) / 100;
-
-        if (signedAmount !== 0) {
-          const [mm, dd, yyyy] = date.split('/');
-
-          const description =
-            `${sectionName} (${accountNumber}): ${desc}`;
-
-          depositTransactions.push({
-            date: `${yyyy}-${mm}-${dd}`,
-            description_raw: description,
-            merchant_extracted: description,
-            reference: accountNumber,
-            amount: signedAmount,
-            account_name: accountName,
-            source_account: accountName,
-            source_institution: 'UNFCU',
-            rawDescLower: desc.toLowerCase(),
-          });
-        }
-
-        prevBalance = balance;
-      }
-    }
-  };
-
-  const extractLoanAccount = (
-    sectionText,
-    sectionName,
-    accountNumber
-  ) => {
-    const accountName = canonicalUnfcuAccount(
-      sectionName,
-      accountNumber
-    );
-
-    const activityIdx =
-      sectionText.indexOf('Account Activity');
-
-    if (activityIdx === -1) return;
-
-    const activityText =
-      sectionText.slice(activityIdx);
-
-    if (
-      activityText.includes(
-        'No activity this statement period'
-      )
-    ) {
-      return;
-    }
-
-    const regularPaymentPattern =
-      /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+Regular Payment\s+\$([\d,]+\.\d{2})\s+Principal\s+\$[\d,]+\.\d{2}\s+Interest\s+\$[\d,]+\.\d{2}/g;
-
-    let m;
-    let matchedAny = false;
+  for (const definition of definitions) {
+    let match;
 
     while (
-      (m = regularPaymentPattern.exec(
-        activityText
-      )) !== null
-    ) {
-      matchedAny = true;
-
-      const [, , postDate, amountStr] = m;
-
-      const amount = parseMoney(amountStr);
-
-      if (amount !== 0) {
-        const [mm, dd, yyyy] =
-          postDate.split('/');
-
-        loanPayments.push({
-          date: `${yyyy}-${mm}-${dd}`,
-          amount,
-          sectionName,
-          accountNumber,
-          accountName,
-        });
-      }
-    }
-
-    if (!matchedAny) {
-      const genericPattern =
-        /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+\$(-?[\d,]+\.\d{2})(?=\s+\d{2}\/\d{2}\/\d{4}|\s*$)/g;
-
-      while (
-        (m = genericPattern.exec(
-          activityText
+      (match =
+        definition.regex.exec(
+          fullText
         )) !== null
-      ) {
-        const [
-          ,
-          ,
-          postDate,
-          rawDesc,
-          amountStr,
-        ] = m;
-
-        const amount =
-          parseMoney(amountStr);
-
-        if (amount !== 0) {
-          const [mm, dd, yyyy] =
-            postDate.split('/');
-
-          const description =
-            `${sectionName} (${accountNumber}): ` +
-            `${cleanDescription(rawDesc)} ` +
-            '[unverified format -- please check this one]';
-
-          depositTransactions.push({
-            date: `${yyyy}-${mm}-${dd}`,
-            description_raw: description,
-            merchant_extracted: description,
-            reference: accountNumber,
-            amount: -Math.abs(amount),
-            account_name: accountName,
-            source_account: accountName,
-            source_institution: 'UNFCU',
-            rawDescLower: '',
-          });
-        }
-      }
-    }
-  };
-
-  sections.forEach((section, i) => {
-    const end =
-      i + 1 < sections.length
-        ? sections[i + 1].start
-        : fullText.length;
-
-    const sectionText =
-      fullText.slice(section.start, end);
-
-    if (
-      [
-        'Membership Share',
-        'Savings Account',
-        'Checking Account',
-      ].includes(section.name)
     ) {
-      extractDepositAccount(
-        sectionText,
-        section.name,
-        section.account
+      const accountNumber =
+        match[1] || '';
+
+      // The same account name appears in the
+      // summary table and again as the actual
+      // activity section. We only want the
+      // activity-section occurrence.
+      const after = fullText.slice(
+        match.index,
+        match.index + 300
       );
-    } else {
-      extractLoanAccount(
-        sectionText,
-        section.name,
-        section.account
-      );
+
+      const looksLikeActivity =
+        /Date\s+Description/i.test(
+          after
+        ) ||
+        /Account Activity/i.test(
+          after
+        );
+
+      if (!looksLikeActivity) {
+        continue;
+      }
+
+      candidates.push({
+        name: definition.name,
+        account: accountNumber,
+        start: match.index,
+      });
     }
-  });
+  }
 
-  const internalLoanWithdrawals =
-    depositTransactions
-      .filter(
-        (t) =>
-          t.amount < 0 &&
-          /loan/i.test(t.rawDescLower)
-      )
-      .map((t) => Math.abs(t.amount));
+  return candidates
+    .sort(
+      (a, b) =>
+        a.start - b.start
+    );
+}
 
-  for (const lp of loanPayments) {
-    const idx =
-      internalLoanWithdrawals.indexOf(
-        Math.round(lp.amount * 100) / 100
+function extractMiniMoneyTokens(text) {
+  const regex =
+    /\(?\$[\d,]+\.\d{2}\)?/g;
+
+  return [
+    ...String(text || '').matchAll(
+      regex
+    ),
+  ].map((match) => ({
+    raw: match[0],
+    index: match.index,
+    amount: parseMoney(match[0]),
+  }));
+}
+
+function parseMiniDepositSection({
+  sectionText,
+  sectionName,
+  accountNumber,
+}) {
+  const transactions = [];
+
+  const accountName =
+    canonicalUnfcuAccount(
+      sectionName,
+      accountNumber
+    );
+
+  if (
+    /No Transactions/i.test(
+      sectionText
+    )
+  ) {
+    return transactions;
+  }
+
+  const activityMatch =
+    sectionText.match(
+      /Date\s+Description\s+Debits\s+Credits\s+Balance/i
+    );
+
+  if (!activityMatch) {
+    return transactions;
+  }
+
+  const activityStart =
+    activityMatch.index +
+    activityMatch[0].length;
+
+  let activityText =
+    sectionText.slice(
+      activityStart
+    );
+
+  const endingIndex =
+    activityText.search(
+      /Ending Balance/i
+    );
+
+  if (endingIndex >= 0) {
+    activityText =
+      activityText.slice(
+        0,
+        endingIndex
+      );
+  }
+
+  const chunks =
+    activityText.split(
+      /(?=\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}\s)/
+    );
+
+  for (const rawChunk of chunks) {
+    const chunk =
+      cleanDescription(rawChunk);
+
+    if (!chunk) continue;
+
+    const dateMatch =
+      chunk.match(
+        /^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\s+(.+)$/
       );
 
-    if (idx !== -1) {
-      internalLoanWithdrawals.splice(
-        idx,
-        1
+    if (!dateMatch) continue;
+
+    const date =
+      normalizeDateParts(
+        dateMatch[1],
+        dateMatch[2],
+        dateMatch[3]
       );
 
+    if (!date) continue;
+
+    const rest =
+      dateMatch[4];
+
+    const money =
+      extractMiniMoneyTokens(
+        rest
+      );
+
+    if (money.length < 1) {
       continue;
     }
 
-    const description =
-      `${lp.sectionName} (${lp.accountNumber}): ` +
-      'Regular Payment ' +
-      '[no matching internal transfer found -- verify this was paid from outside UNFCU]';
+    // Deposit accounts normally have:
+    // transaction amount + running balance.
+    // The FIRST monetary value is therefore
+    // the transaction itself.
+    const txnMoney = money[0];
 
-    depositTransactions.push({
-      date: lp.date,
-      description_raw: description,
-      merchant_extracted: description,
-      reference: lp.accountNumber,
-      amount: -Math.abs(lp.amount),
-      account_name: lp.accountName,
-      source_account: lp.accountName,
-      source_institution: 'UNFCU',
-    });
+    const description =
+      cleanDescription(
+        rest.slice(
+          0,
+          txnMoney.index
+        )
+      );
+
+    let amount =
+      txnMoney.amount;
+
+    // Some PDF extraction paths lose the
+    // parentheses that indicate debits.
+    // Description gives us a safe secondary
+    // signal for withdrawals.
+    if (
+      /withdrawal|debit|payment|transfer to/i.test(
+        description
+      )
+    ) {
+      amount =
+        -Math.abs(amount);
+    } else if (
+      /deposit|credit|interest/i.test(
+        description
+      )
+    ) {
+      amount =
+        Math.abs(amount);
+    }
+
+    if (amount === 0) continue;
+
+    const reference =
+      accountNumber || '';
+
+    const fullDescription =
+      `${sectionName}` +
+      `${accountNumber
+        ? ` (${accountNumber})`
+        : ''}: ` +
+      description;
+
+    transactions.push(
+      makeTransaction({
+        date,
+        description:
+          fullDescription,
+        reference,
+        amount,
+        accountName,
+      })
+    );
   }
 
-  return depositTransactions.map(
-    ({ rawDescLower, ...t }) => t
+  return transactions;
+}
+
+function parseMiniLoanSection({
+  sectionText,
+  sectionName,
+  accountNumber,
+}) {
+  const transactions = [];
+
+  const accountName =
+    canonicalUnfcuAccount(
+      sectionName,
+      accountNumber
+    );
+
+  if (
+    /No Transactions/i.test(
+      sectionText
+    )
+  ) {
+    return transactions;
+  }
+
+  const activityMatch =
+    sectionText.match(
+      /Date\s+Description\s+Debits\s+Credits\s+Balance/i
+    );
+
+  if (!activityMatch) {
+    return transactions;
+  }
+
+  const activityStart =
+    activityMatch.index +
+    activityMatch[0].length;
+
+  let activityText =
+    sectionText.slice(
+      activityStart
+    );
+
+  const endingIndex =
+    activityText.search(
+      /Ending Balance/i
+    );
+
+  if (endingIndex >= 0) {
+    activityText =
+      activityText.slice(
+        0,
+        endingIndex
+      );
+  }
+
+  const chunks =
+    activityText.split(
+      /(?=\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}\s)/
+    );
+
+  for (const rawChunk of chunks) {
+    const chunk =
+      cleanDescription(rawChunk);
+
+    if (!chunk) continue;
+
+    const dateMatch =
+      chunk.match(
+        /^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\s+(.+)$/
+      );
+
+    if (!dateMatch) continue;
+
+    const date =
+      normalizeDateParts(
+        dateMatch[1],
+        dateMatch[2],
+        dateMatch[3]
+      );
+
+    if (!date) continue;
+
+    const rest =
+      dateMatch[4];
+
+    const money =
+      extractMiniMoneyTokens(
+        rest
+      );
+
+    if (money.length < 1) {
+      continue;
+    }
+
+    const txnMoney = money[0];
+
+    const description =
+      cleanDescription(
+        rest.slice(
+          0,
+          txnMoney.index
+        )
+      );
+
+    const amount =
+      -Math.abs(
+        txnMoney.amount
+      );
+
+    if (amount === 0) continue;
+
+    const fullDescription =
+      `${sectionName}` +
+      `${accountNumber
+        ? ` (${accountNumber})`
+        : ''}: ` +
+      description;
+
+    transactions.push(
+      makeTransaction({
+        date,
+        description:
+          fullDescription,
+        reference:
+          accountNumber,
+        amount,
+        accountName,
+      })
+    );
+  }
+
+  return transactions;
+}
+
+function parseMiniVisaSection({
+  sectionText,
+  accountNumber,
+}) {
+  const transactions = [];
+
+  const accountName =
+    canonicalUnfcuAccount(
+      'UNFCU Visa Elite',
+      accountNumber
+    );
+
+  if (
+    /No Transactions/i.test(
+      sectionText
+    )
+  ) {
+    return transactions;
+  }
+
+  const headerMatch =
+    sectionText.match(
+      /Date\s+Description\s+Debits\s+Credits/i
+    );
+
+  if (!headerMatch) {
+    return transactions;
+  }
+
+  let activityText =
+    sectionText.slice(
+      headerMatch.index +
+      headerMatch[0].length
+    );
+
+  const endingIndex =
+    activityText.search(
+      /Ending Balance/i
+    );
+
+  if (endingIndex >= 0) {
+    activityText =
+      activityText.slice(
+        0,
+        endingIndex
+      );
+  }
+
+  const chunks =
+    activityText.split(
+      /(?=\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}\s)/
+    );
+
+  for (const rawChunk of chunks) {
+    const chunk =
+      cleanDescription(rawChunk);
+
+    if (!chunk) continue;
+
+    const dateMatch =
+      chunk.match(
+        /^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\s+(.+)$/
+      );
+
+    if (!dateMatch) continue;
+
+    const date =
+      normalizeDateParts(
+        dateMatch[1],
+        dateMatch[2],
+        dateMatch[3]
+      );
+
+    if (!date) continue;
+
+    const rest =
+      dateMatch[4];
+
+    const money =
+      extractMiniMoneyTokens(
+        rest
+      );
+
+    if (money.length < 1) {
+      continue;
+    }
+
+    const txnMoney =
+      money[0];
+
+    const description =
+      cleanDescription(
+        rest.slice(
+          0,
+          txnMoney.index
+        )
+      );
+
+    let amount;
+
+    // On a credit card:
+    // purchases/interest increase debt => expense.
+    // payments/credits reduce debt => positive.
+    if (
+      /payment|thank you|credit|refund/i.test(
+        description
+      ) ||
+      txnMoney.raw.includes('(')
+    ) {
+      amount =
+        Math.abs(
+          txnMoney.amount
+        );
+    } else {
+      amount =
+        -Math.abs(
+          txnMoney.amount
+        );
+    }
+
+    if (amount === 0) continue;
+
+    transactions.push(
+      makeTransaction({
+        date,
+        description,
+        amount,
+        accountName,
+      })
+    );
+  }
+
+  return transactions;
+}
+
+function reconcileMiniLoanPayments(
+  transactions
+) {
+  const result = [];
+  const loanTransactions = [];
+  const otherTransactions = [];
+
+  for (const transaction of transactions) {
+    if (
+      transaction.account_name
+        .startsWith(
+          'UNFCU Personal Loan'
+        ) ||
+      transaction.account_name
+        .startsWith(
+          'UNFCU Checking Line of Credit'
+        )
+    ) {
+      loanTransactions.push(
+        transaction
+      );
+    } else {
+      otherTransactions.push(
+        transaction
+      );
+    }
+  }
+
+  const consumed =
+    new Set();
+
+  for (const loanTxn of loanTransactions) {
+    const matchingIndex =
+      otherTransactions.findIndex(
+        (otherTxn, index) => {
+          if (
+            consumed.has(index)
+          ) {
+            return false;
+          }
+
+          const sameAmount =
+            Math.abs(
+              Number(
+                otherTxn.amount
+              )
+            ).toFixed(2) ===
+            Math.abs(
+              Number(
+                loanTxn.amount
+              )
+            ).toFixed(2);
+
+          if (!sameAmount) {
+            return false;
+          }
+
+          const looksLoanRelated =
+            /loan/i.test(
+              otherTxn.description_raw ||
+                ''
+            );
+
+          if (!looksLoanRelated) {
+            return false;
+          }
+
+          const otherDate =
+            String(
+              otherTxn.date || ''
+            );
+
+          const loanDate =
+            String(
+              loanTxn.date || ''
+            );
+
+          return (
+            otherDate === loanDate
+          );
+        }
+      );
+
+    if (matchingIndex !== -1) {
+      // Internal Savings/Checking withdrawal
+      // already records the real cash movement.
+      // Do not count the same loan payment twice.
+      consumed.add(
+        matchingIndex
+      );
+      continue;
+    }
+
+    result.push(
+      loanTxn
+    );
+  }
+
+  result.push(
+    ...otherTransactions
+  );
+
+  return result;
+}
+
+function parseMiniSummaryStatement(
+  fullText
+) {
+  const sections =
+    findMiniSummarySections(
+      fullText
+    );
+
+  if (
+    sections.length === 0
+  ) {
+    return [];
+  }
+
+  const transactions = [];
+
+  sections.forEach(
+    (section, index) => {
+      const next =
+        sections[index + 1];
+
+      const end =
+        next
+          ? next.start
+          : fullText.length;
+
+      const sectionText =
+        fullText.slice(
+          section.start,
+          end
+        );
+
+      if (
+        [
+          'Savings Account',
+          'Checking Account',
+          'Membership Share',
+        ].includes(
+          section.name
+        )
+      ) {
+        transactions.push(
+          ...parseMiniDepositSection({
+            sectionText,
+            sectionName:
+              section.name,
+            accountNumber:
+              section.account,
+          })
+        );
+
+        return;
+      }
+
+      if (
+        [
+          'Personal Loan',
+          'Checking Line of Credit',
+        ].includes(
+          section.name
+        )
+      ) {
+        transactions.push(
+          ...parseMiniLoanSection({
+            sectionText,
+            sectionName:
+              section.name,
+            accountNumber:
+              section.account,
+          })
+        );
+
+        return;
+      }
+
+      if (
+        section.name ===
+        'UNFCU Visa Elite'
+      ) {
+        transactions.push(
+          ...parseMiniVisaSection({
+            sectionText,
+            accountNumber:
+              section.account,
+          })
+        );
+      }
+    }
+  );
+
+  return reconcileMiniLoanPayments(
+    transactions
   );
 }
 
-export default async function handler(req, res) {
+// ============================================================
+// REQUEST HANDLER
+// ============================================================
+
+export default async function handler(
+  req,
+  res
+) {
   if (req.method !== 'POST') {
-    return res.status(405).json({
-      error: 'Method not allowed',
-    });
+    return res
+      .status(405)
+      .json({
+        error:
+          'Method not allowed',
+      });
   }
 
-  const user = await requireUser(req, res);
+  // Authenticate before reading or parsing
+  // the uploaded PDF.
+  const user =
+    await requireUser(
+      req,
+      res
+    );
 
   if (!user) return;
 
@@ -442,16 +1090,24 @@ export default async function handler(req, res) {
   }
 
   try {
-    const form = formidable({
-      multiples: false,
-    });
+    const form =
+      formidable({
+        multiples: false,
+      });
 
     const { files } =
       await new Promise(
-        (resolve, reject) => {
+        (
+          resolve,
+          reject
+        ) => {
           form.parse(
             req,
-            (err, fields, files) => {
+            (
+              err,
+              fields,
+              parsedFiles
+            ) => {
               if (err) {
                 reject(err);
                 return;
@@ -459,19 +1115,24 @@ export default async function handler(req, res) {
 
               resolve({
                 fields,
-                files,
+                files:
+                  parsedFiles,
               });
             }
           );
         }
       );
 
-    const file = files.file;
+    const file =
+      files.file;
 
     if (!file) {
-      return res.status(400).json({
-        error: 'No file uploaded',
-      });
+      return res
+        .status(400)
+        .json({
+          error:
+            'No file uploaded',
+        });
     }
 
     const filePath =
@@ -480,95 +1141,120 @@ export default async function handler(req, res) {
         : file.filepath;
 
     const fileBuffer =
-      fs.readFileSync(filePath);
+      fs.readFileSync(
+        filePath
+      );
 
     const pdf =
       await getDocumentProxy(
-        new Uint8Array(fileBuffer)
+        new Uint8Array(
+          fileBuffer
+        )
       );
 
     const { text } =
-      await extractText(pdf, {
-        mergePages: true,
-      });
-
-    if (!text || !text.trim()) {
-      return res.status(400).json({
-        error:
-          'Could not extract text from PDF',
-      });
-    }
-
-    let transactions;
-    let detectedType = 'unknown';
+      await extractText(
+        pdf,
+        {
+          mergePages: true,
+        }
+      );
 
     if (
-      text.includes('TRANSACTIONS') &&
-      /Account Number Ending In/.test(text)
+      !text ||
+      !text.trim()
     ) {
-      detectedType = 'visa';
-
-      transactions =
-        parseUnfcuVisaStatement(text);
-    } else if (
-      text.includes(
-        'Summary of Accounts'
-      ) &&
-      text.includes('Membership Share')
-    ) {
-      detectedType = 'general';
-
-      transactions =
-        parseUnfcuGeneralStatement(text);
-    } else {
-      return res.status(400).json({
-        error:
-          'This does not look like a recognized UNFCU statement format ' +
-          '(expected either the Visa/credit card statement or the general ' +
-          'Membership/Savings/Loan statement). DEBUG -- first 1500 chars: ' +
-          text.slice(0, 1500),
-      });
+      return res
+        .status(400)
+        .json({
+          error:
+            'Could not extract text from PDF',
+        });
     }
 
-    if (transactions.length === 0) {
-      const anchorIndex =
-        text.indexOf('BUFFET') >= 0
-          ? text.indexOf('BUFFET')
-          : text.indexOf('TRANSACTIONS');
+    let transactions = [];
+    let detectedType =
+      'unknown';
 
-      const start =
-        Math.max(
-          0,
-          anchorIndex - 200
+    // Traditional dedicated Visa
+    // statement.
+    if (
+      text.includes(
+        'TRANSACTIONS'
+      ) &&
+      /Account Number Ending In/i.test(
+        text
+      )
+    ) {
+      detectedType =
+        'visa';
+
+      transactions =
+        parseTraditionalVisaStatement(
+          text
+        );
+    } else {
+      // Accounts Record / MiniSummary.
+      //
+      // This intentionally does NOT require
+      // Membership Share because UNFCU also
+      // produces individual-account PDFs such
+      // as a Personal Loan-only MiniSummary.
+      const looksLikeMiniSummary =
+        /Accounts Record Ending/i.test(
+          text
+        ) ||
+        /Summary of Deposit Accounts/i.test(
+          text
+        ) ||
+        /Summary of Loan Accounts and Credit Cards/i.test(
+          text
         );
 
-      const debugSnippet =
-        anchorIndex >= 0
-          ? text.slice(
-              start,
-              start + 2500
-            )
-          : text.slice(0, 2500);
+      if (
+        looksLikeMiniSummary
+      ) {
+        detectedType =
+          'accounts-record';
 
-      return res.status(400).json({
-        error:
-          `Detected as "${detectedType}" format but found 0 transactions. ` +
-          `DEBUG snippet: ${debugSnippet}`,
-      });
+        transactions =
+          parseMiniSummaryStatement(
+            text
+          );
+      }
+    }
+
+    if (
+      transactions.length === 0
+    ) {
+      const debugSnippet =
+        text.slice(0, 2500);
+
+      return res
+        .status(400)
+        .json({
+          error:
+            `Detected as "${detectedType}" but found 0 transactions. ` +
+            `DEBUG snippet: ${debugSnippet}`,
+        });
     }
 
     return res
       .status(200)
-      .json(transactions);
+      .json(
+        transactions
+      );
   } catch (error) {
     console.error(
       'parseUNFCUStatement failed',
       safeError(error)
     );
 
-    return res.status(500).json({
-      error:
-        'Failed to parse UNFCU statement',
-    });
+    return res
+      .status(500)
+      .json({
+        error:
+          'Failed to parse UNFCU statement',
+      });
   }
 }
