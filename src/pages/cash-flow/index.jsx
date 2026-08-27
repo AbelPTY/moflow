@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { addDays, format, parseISO } from 'date-fns';
+import { addDays, differenceInCalendarDays, format, parseISO } from 'date-fns';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import UpcomingPaymentsCalendar from '../../components/UpcomingPaymentsCalendar';
 import useScheduledPayments from '../../hooks/useScheduledPayments';
@@ -8,18 +8,40 @@ import useCreditCards from '../../hooks/useCreditCards';
 import { nextDueDate } from '../../lib/cardGuard';
 
 const WINDOW_OPTIONS = [7, 14, 30];
-const HISTORY_DAYS = 60;
+const HISTORY_WEEKS = 8;
+const HISTORY_DAYS = HISTORY_WEEKS * 7;
 
 const LS_CASH = 'cashflow_available_cash';
 const LS_INCOME_AMT = 'cashflow_income_amount';
 const LS_INCOME_DAY = 'cashflow_income_day';
-const LS_EXPECTED_DAILY = 'cashflow_expected_daily_spend';
+
+// New key on purpose: V2.1 uses a different spending model, so an old
+// V2 manual/auto value should not silently override the new baseline.
+const LS_EXPECTED_DAILY = 'cashflow_expected_daily_spend_v21';
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+
+const percent = (n) =>
+  `${Math.round(Math.max(0, Math.min(1, Number(n) || 0)) * 100)}%`;
+
+const median = (values) => {
+  const clean = values
+    .map(Number)
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+
+  if (!clean.length) return 0;
+
+  const middle = Math.floor(clean.length / 2);
+
+  return clean.length % 2
+    ? clean[middle]
+    : (clean[middle - 1] + clean[middle]) / 2;
+};
 
 const normalizeText = (value) =>
   String(value || '')
@@ -29,6 +51,7 @@ const normalizeText = (value) =>
 
 const looksLikeCreditAccount = (account) => {
   const value = String(account || '').toLowerCase();
+
   return (
     value.includes('credit card') ||
     value.includes('mastercard') ||
@@ -56,7 +79,7 @@ const CashFlow = () => {
   const [expectedDailySpend, setExpectedDailySpend] = useState('');
   const [whatIfSpend, setWhatIfSpend] = useState('');
 
-  // Keep the existing simple recurring-income model for now:
+  // Existing simple recurring-income model:
   // latest month's INCOME total, using the latest deposit's day-of-month.
   const detectedIncome = useMemo(() => {
     if (!transactions?.length) return { amount: 0, day: 1 };
@@ -83,38 +106,78 @@ const CashFlow = () => {
     return { amount: Math.round(monthTotal), day };
   }, [transactions]);
 
-  // Estimate everyday CASH spending from recent history.
+  // V2.1 spending model:
   //
-  // Important:
-  // - excludes transfers and credit-card purchase accounts because those do not
-  //   reduce checking/savings cash at the moment of purchase;
-  // - uses only NEEDS/WANTS expenses;
-  // - excludes transactions that clearly match a scheduled payment entity,
-  //   reducing double-counting with known commitments;
-  // - remains editable by the user.
-  const detectedDailySpend = useMemo(() => {
+  // 1) Learn "normal" variable spending from the most recent 8 weeks.
+  // 2) Include both cash/debit and credit-card purchases.
+  // 3) Use the MEDIAN weekly total instead of a raw daily average so one
+  //    unusually expensive week does not dominate the forecast.
+  // 4) Learn what share historically happened on credit cards.
+  // 5) Only the cash/debit share reduces projected cash day-by-day.
+  //    The credit-card share is shown as future card accrual; it does not hit
+  //    cash until a future statement/payment cycle.
+  //
+  // This deliberately avoids pretending that a card purchase leaves the bank
+  // account on purchase day.
+  const spendingModel = useMemo(() => {
     if (!transactions?.length) {
-      return { daily: 0, count: 0, total: 0 };
+      return {
+        dailyTotal: 0,
+        weeklyMedian: 0,
+        cardShare: 0,
+        cashShare: 1,
+        qualifyingCount: 0,
+        activeWeeks: 0,
+      };
     }
 
     const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const historyStart = addDays(start, -HISTORY_DAYS);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const historyStart = addDays(today, -HISTORY_DAYS);
 
     const scheduledLabels = (payments || [])
       .map((p) => normalizeText(p.entity))
       .filter((label) => label.length >= 4);
 
-    const qualifying = transactions.filter((t) => {
-      if (!t.dateString || Number(t.amount) >= 0) return false;
-      if (t.is_transfer) return false;
-      if (!['NEEDS', 'WANTS'].includes(t.budgetBucket)) return false;
-      if (looksLikeCreditAccount(t.account)) return false;
+    const validHistoryDates = transactions
+      .map((t) => {
+        if (!t.dateString) return null;
+        const d = parseISO(t.dateString);
+        return Number.isNaN(d.getTime()) ? null : d;
+      })
+      .filter((d) => d && d >= historyStart && d < today);
+
+    const oldestHistoryDate = validHistoryDates.length
+      ? validHistoryDates.reduce((oldest, d) => (d < oldest ? d : oldest))
+      : null;
+
+    const availableDays = oldestHistoryDate
+      ? Math.min(
+          HISTORY_DAYS,
+          Math.max(1, differenceInCalendarDays(today, oldestHistoryDate))
+        )
+      : 0;
+
+    const activeWeeks = availableDays
+      ? Math.min(HISTORY_WEEKS, Math.max(1, Math.ceil(availableDays / 7)))
+      : 0;
+
+    const weeks = Array.from({ length: activeWeeks }, () => ({
+      total: 0,
+      cash: 0,
+      card: 0,
+    }));
+
+    let qualifyingCount = 0;
+
+    transactions.forEach((t) => {
+      if (!activeWeeks) return;
+      if (!t.dateString || Number(t.amount) >= 0) return;
+      if (t.is_transfer) return;
+      if (!['NEEDS', 'WANTS'].includes(t.budgetBucket)) return;
 
       const d = parseISO(t.dateString);
-      if (Number.isNaN(d.getTime()) || d < historyStart || d >= start) {
-        return false;
-      }
+      if (Number.isNaN(d.getTime()) || d < historyStart || d >= today) return;
 
       const description = normalizeText(
         `${t.merchant || ''} ${t.description || ''}`
@@ -124,22 +187,49 @@ const CashFlow = () => {
         (label) => description.includes(label)
       );
 
-      return !matchesKnownBill;
+      if (matchesKnownBill) return;
+
+      const daysAgo = differenceInCalendarDays(today, d);
+
+      // Week 0 = 1-7 days ago, week 1 = 8-14 days ago, etc.
+      const weekIndex = Math.floor((daysAgo - 1) / 7);
+
+      if (weekIndex < 0 || weekIndex >= activeWeeks) return;
+
+      const amount = Math.abs(Number(t.amount) || 0);
+      if (!amount) return;
+
+      qualifyingCount += 1;
+      weeks[weekIndex].total += amount;
+
+      if (looksLikeCreditAccount(t.account)) {
+        weeks[weekIndex].card += amount;
+      } else {
+        weeks[weekIndex].cash += amount;
+      }
     });
 
-    const total = qualifying.reduce(
-      (sum, t) => sum + Math.abs(Number(t.amount) || 0),
-      0
-    );
+    const weeklyMedian = median(weeks.map((week) => week.total));
+    const totalSpend = weeks.reduce((sum, week) => sum + week.total, 0);
+    const totalCardSpend = weeks.reduce((sum, week) => sum + week.card, 0);
+
+    const cardShare =
+      totalSpend > 0
+        ? Math.max(0, Math.min(1, totalCardSpend / totalSpend))
+        : 0;
 
     return {
-      daily: Math.round((total / HISTORY_DAYS) * 100) / 100,
-      count: qualifying.length,
-      total,
+      dailyTotal: weeklyMedian / 7,
+      weeklyMedian,
+      cardShare,
+      cashShare: 1 - cardShare,
+      qualifyingCount,
+      activeWeeks,
     };
   }, [transactions, payments]);
 
-  // Load persisted assumptions. If no value has been set yet, seed from history.
+  // Load persisted assumptions. The new expected-spend key lets V2.1 seed
+  // from the new median-week model instead of inheriting V2's raw average.
   useEffect(() => {
     const cashStored = localStorage.getItem(LS_CASH);
     if (cashStored !== null) setAvailableCash(cashStored);
@@ -166,14 +256,14 @@ const CashFlow = () => {
     setExpectedDailySpend(
       spendStored !== null
         ? spendStored
-        : detectedDailySpend.daily
-          ? String(detectedDailySpend.daily)
+        : spendingModel.dailyTotal
+          ? String(Math.round(spendingModel.dailyTotal * 100) / 100)
           : ''
     );
   }, [
     detectedIncome.amount,
     detectedIncome.day,
-    detectedDailySpend.daily,
+    spendingModel.dailyTotal,
   ]);
 
   const setCash = (value) => {
@@ -196,11 +286,31 @@ const CashFlow = () => {
     localStorage.setItem(LS_EXPECTED_DAILY, value);
   };
 
+  const resetDailySpend = () => {
+    const detected = spendingModel.dailyTotal
+      ? String(Math.round(spendingModel.dailyTotal * 100) / 100)
+      : '';
+
+    setExpectedDailySpend(detected);
+
+    if (detected) {
+      localStorage.setItem(LS_EXPECTED_DAILY, detected);
+    } else {
+      localStorage.removeItem(LS_EXPECTED_DAILY);
+    }
+  };
+
   const cash = parseFloat(availableCash) || 0;
   const incAmt = parseFloat(incomeAmount) || 0;
   const incDay = parseInt(incomeDay, 10) || 0;
-  const dailySpend = Math.max(0, parseFloat(expectedDailySpend) || 0);
+  const dailyLifestyleSpend = Math.max(
+    0,
+    parseFloat(expectedDailySpend) || 0
+  );
   const scenarioSpend = Math.max(0, parseFloat(whatIfSpend) || 0);
+
+  const dailyCashSpend = dailyLifestyleSpend * spendingModel.cashShare;
+  const dailyCardSpend = dailyLifestyleSpend * spendingModel.cardShare;
 
   const proj = useMemo(() => {
     const now = new Date();
@@ -229,8 +339,8 @@ const CashFlow = () => {
     });
 
     // Future recurring income.
-    // Strictly future (> today) so "available cash now" does not double-count
-    // income that may already have posted today.
+    // Strictly future (> today) so current cash does not double-count income
+    // that may already have posted today.
     if (incAmt > 0 && incDay >= 1 && incDay <= 31) {
       for (let m = 0; m <= 2; m += 1) {
         const d = dateForDayOfMonth(
@@ -251,7 +361,9 @@ const CashFlow = () => {
       }
     }
 
-    // Unpaid credit-card statement balances due inside the selected window.
+    // Existing unpaid statement balances are known cash obligations.
+    // New projected card purchases are NOT added here: they belong to a future
+    // card cycle and are tracked separately as expected card accrual.
     (cards || []).forEach((card) => {
       if (card.statement_paid) return;
 
@@ -269,22 +381,23 @@ const CashFlow = () => {
       }
     });
 
-    // Expected everyday cash spending is modeled day-by-day.
-    // Start tomorrow because "available cash now" is the current balance.
-    if (dailySpend > 0) {
+    // Only the historically cash/debit portion of everyday lifestyle spending
+    // reduces current cash now.
+    if (dailyCashSpend > 0) {
       for (let day = 1; day <= windowDays; day += 1) {
         const d = addDays(start, day);
+
         events.push({
           date: d,
           dateStr: format(d, 'yyyy-MM-dd'),
-          label: 'Expected everyday spending',
-          amount: -dailySpend,
-          type: 'expected',
+          label: 'Expected cash/debit spending',
+          amount: -dailyCashSpend,
+          type: 'expected-cash',
         });
       }
     }
 
-    // Scenario input is immediate and intentionally not persisted.
+    // Scenario input is immediate cash spending and intentionally not persisted.
     if (scenarioSpend > 0) {
       events.push({
         date: start,
@@ -300,7 +413,7 @@ const CashFlow = () => {
       bill: 1,
       card: 1,
       scenario: 2,
-      expected: 3,
+      'expected-cash': 3,
     };
 
     events.sort(
@@ -349,9 +462,9 @@ const CashFlow = () => {
         .reduce((sum, e) => sum + e.amount, 0)
     );
 
-    const totalExpectedSpending = Math.abs(
+    const totalExpectedCashSpending = Math.abs(
       events
-        .filter((e) => e.type === 'expected')
+        .filter((e) => e.type === 'expected-cash')
         .reduce((sum, e) => sum + e.amount, 0)
     );
 
@@ -360,6 +473,11 @@ const CashFlow = () => {
         .filter((e) => e.type === 'scenario')
         .reduce((sum, e) => sum + e.amount, 0)
     );
+
+    const totalExpectedLifestyleSpending =
+      dailyLifestyleSpend * windowDays;
+
+    const expectedCardAccrual = dailyCardSpend * windowDays;
 
     return {
       rows,
@@ -370,7 +488,9 @@ const CashFlow = () => {
       totalBills,
       totalCards,
       totalKnownCommitments: totalBills + totalCards,
-      totalExpectedSpending,
+      totalExpectedCashSpending,
+      totalExpectedLifestyleSpending,
+      expectedCardAccrual,
       totalScenarioSpend,
       projectedEnd: running,
     };
@@ -380,7 +500,9 @@ const CashFlow = () => {
     cash,
     incAmt,
     incDay,
-    dailySpend,
+    dailyCashSpend,
+    dailyCardSpend,
+    dailyLifestyleSpend,
     scenarioSpend,
     windowDays,
   ]);
@@ -410,7 +532,7 @@ const CashFlow = () => {
   );
 
   const loading = payLoading || txLoading || cardsLoading;
-  const hasSpendEstimate = dailySpend > 0;
+  const hasSpendEstimate = dailyLifestyleSpend > 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -421,7 +543,7 @@ const CashFlow = () => {
           <h1 className="text-3xl font-bold">Cash Flow</h1>
           <p className="text-sm text-muted-foreground font-medium mt-1">
             See what your cash is likely to look like after income, known
-            commitments, and normal everyday spending.
+            commitments, and normal spending behavior.
           </p>
         </div>
 
@@ -479,10 +601,20 @@ const CashFlow = () => {
           </div>
 
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
-            <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-              Expected everyday cash spend
-            </label>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center justify-between gap-3">
+              <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Expected everyday spending
+              </label>
+              <button
+                type="button"
+                onClick={resetDailySpend}
+                className="text-[10px] font-bold text-blue-600 hover:text-blue-700"
+              >
+                Use history
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1 mt-1">
               <span className="text-xl font-bold text-muted-foreground">
                 $
               </span>
@@ -497,9 +629,9 @@ const CashFlow = () => {
               />
               <span className="text-sm text-muted-foreground">/ day</span>
             </div>
+
             <p className="text-[11px] text-muted-foreground mt-1">
-              Based on the last {HISTORY_DAYS} days of non-card NEEDS/WANTS
-              spending. Editable.
+              Typical variable spending across cash, debit, and credit cards.
             </p>
           </div>
 
@@ -547,7 +679,7 @@ const CashFlow = () => {
                     {money(proj.projectedEnd)}
                   </p>
                   <p className="text-sm text-muted-foreground mt-2">
-                    Estimated position {windowDays} days from now.
+                    Estimated cash position {windowDays} days from now.
                   </p>
                 </div>
 
@@ -563,8 +695,8 @@ const CashFlow = () => {
                     value={`-${money(proj.totalKnownCommitments)}`}
                   />
                   <BreakdownItem
-                    label="Expected"
-                    value={`-${money(proj.totalExpectedSpending)}`}
+                    label="Expected cash"
+                    value={`-${money(proj.totalExpectedCashSpending)}`}
                   />
                   <BreakdownItem
                     label="What-if"
@@ -581,6 +713,37 @@ const CashFlow = () => {
               )}
             </div>
 
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-blue-900">
+                    Spending behavior model
+                  </p>
+                  <p className="text-xs text-blue-800 mt-1">
+                    Typical week: {money(spendingModel.weeklyMedian)} based on
+                    the median of up to {HISTORY_WEEKS} recent weeks.
+                    Historically, about {percent(spendingModel.cardShare)} of
+                    qualifying everyday spending used credit cards and{' '}
+                    {percent(spendingModel.cashShare)} used cash/debit.
+                  </p>
+                </div>
+                <div className="text-xs text-blue-900 md:text-right shrink-0">
+                  <p>
+                    Cash impact: <strong>{money(dailyCashSpend)}/day</strong>
+                  </p>
+                  <p>
+                    Card accrual: <strong>{money(dailyCardSpend)}/day</strong>
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-blue-700 mt-2">
+                New card purchases are tracked as expected card accrual, not
+                as immediate cash outflow. Existing statement balances due
+                inside the forecast are already counted as known commitments.
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
               <SummaryStat
                 label={`Known commitments (${windowDays}d)`}
@@ -590,16 +753,18 @@ const CashFlow = () => {
                 )} card statements`}
                 tone="neutral"
               />
+
               <SummaryStat
-                label={`Expected spending (${windowDays}d)`}
-                value={money(proj.totalExpectedSpending)}
-                sub={
-                  hasSpendEstimate
-                    ? `${money(dailySpend)} per day`
-                    : 'No estimate active'
-                }
+                label={`Expected lifestyle spend (${windowDays}d)`}
+                value={money(proj.totalExpectedLifestyleSpending)}
+                sub={`${money(
+                  proj.totalExpectedCashSpending
+                )} cash impact + ${money(
+                  proj.expectedCardAccrual
+                )} card accrual`}
                 tone="neutral"
               />
+
               <SummaryStat
                 label="Projected low point"
                 value={money(proj.lowest)}
@@ -639,7 +804,7 @@ const CashFlow = () => {
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Instantly test a purchase or other cash outflow today.
+                  Test an immediate purchase or other cash outflow today.
                 </p>
               </div>
             </div>
@@ -656,8 +821,8 @@ const CashFlow = () => {
                   </span>{' '}
                   at{' '}
                   <span className="font-bold">{proj.shortfall.label}</span>.
-                  Review the timing of income, commitments, expected spending,
-                  or the what-if scenario.
+                  Review the timing of income, commitments, expected cash
+                  spending, or the what-if scenario.
                 </p>
               </div>
             ) : (
@@ -665,7 +830,7 @@ const CashFlow = () => {
                 <p className="text-sm text-emerald-800 font-medium">
                   Projection stays above $0 through the next {windowDays} days
                   based on the assumptions shown above. The lowest projected
-                  balance is{' '}
+                  cash balance is{' '}
                   <span className="font-bold">{money(proj.lowest)}</span>.
                 </p>
               </div>
@@ -675,8 +840,9 @@ const CashFlow = () => {
               <div className="px-5 py-3 border-b border-border">
                 <p className="font-bold text-foreground">Cash flow timeline</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Known obligations and income are shown alongside modeled
-                  everyday spending.
+                  This timeline shows actual cash timing. Expected credit-card
+                  purchases are not deducted here until they become a future
+                  statement obligation.
                 </p>
               </div>
 
@@ -695,7 +861,9 @@ const CashFlow = () => {
                     <div
                       key={`${row.dateStr}-${row.type}-${index}`}
                       className={`flex items-center justify-between gap-4 px-5 py-3 ${
-                        row.type === 'expected' ? 'bg-background/30' : ''
+                        row.type === 'expected-cash'
+                          ? 'bg-background/30'
+                          : ''
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -759,7 +927,7 @@ const eventTypeLabel = (type) => {
     income: 'Income',
     bill: 'Known bill',
     card: 'Card statement',
-    expected: 'Expected spending',
+    'expected-cash': 'Expected cash spending',
     scenario: 'What-if scenario',
   };
 
