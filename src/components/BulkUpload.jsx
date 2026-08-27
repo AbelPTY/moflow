@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabase'; // AsegÃºrate de que esta ruta sea la correcta en tu proyecto
+import { supabase } from '../lib/supabase'; // Asegurate de que esta ruta sea la correcta en tu proyecto
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import rulesData from '../rules/merchant_rules.json';
@@ -177,7 +177,7 @@ function parseCooperativaHTML(htmlText) {
   };
 
   extractSection('OTROS COMPROMISOS', 'Otros Compromisos', 7, 3, 'Insurance', 'NEEDS');
-  extractSection('PRESTAMOS', 'PrÃ©stamos', 13, 7, 'Loan Payment', 'DEBT_FUNDING');
+  extractSection('PRESTAMOS', 'Prestamos', 13, 7, 'Loan Payment', 'DEBT_FUNDING');
   extractSection('SEGUROS', 'Seguros', 8, 4, 'Insurance', 'NEEDS');
 
   // --- Ahorros: MULTIPLE sub-accounts, each with its own "Label : account
@@ -258,7 +258,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
   const { userRules } = useUserMerchantRules(); // active user rules (empty today)
   const closeModal = () => { if (onClose) onClose(); };
   const [activeTab, setActiveTab] = useState('text');
-  const [selectedAccount, setSelectedAccount] = useState('Cuenta Principal'); // <-- INYECTADO
+  const [selectedAccount, setSelectedAccount] = useState('Banco General - Savings');
   const [rawText, setRawText] = useState('');
   const [loading, setLoading] = useState(false);
   const [parsedTransactions, setParsedTransactions] = useState([]);
@@ -521,7 +521,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
     }
   };
 
-  // 2. Manejo de Hojas de CÃ¡lculo
+  // 2. Manejo de Hojas de Calculo
   // Reads real cell values (numbers stay numbers -- no text re-interpretation),
   // and only asks the AI to identify which columns are which from a small sample,
   // so accuracy and file size are never a problem.
@@ -815,7 +815,7 @@ return (
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
           <h2>Bulk Statement Upload</h2>
-          <button onClick={closeModal} style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer' }}>âŒ</button>
+          <button onClick={closeModal} style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer' }}>X</button>
         </div>
 
         {/* SELECTOR DE CUENTA INYECTADO */}
@@ -827,37 +827,36 @@ return (
               onChange={(e) => setSelectedAccount(e.target.value)}
               style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid var(--color-border)' }}
             >
-              <option value="Cuenta Principal">Cuenta Principal</option>
-              <option value="Nueva Tarjeta Visa">Nueva Tarjeta Visa</option>
-              <option value="Chase Checking">Chase Checking</option>
-              <option value="Davivienda Credit Card">Davivienda Credit Card</option>
+              <option value="Banco General - Savings">Banco General - Savings</option>
+              <option value="Banco General - Mileage CC">Banco General - Mileage CC</option>
+              <option value="Banco General - Star CC">Banco General - Star CC</option>
+              <option value="Davivienda CC">Davivienda CC</option>
               <option value="Davivienda Checking">Davivienda Checking</option>
+              <option value="Cooperativa Profesionales">Cooperativa Profesionales</option>
+              <option value="Cooperativa Profesionales Mastercard">Cooperativa Profesionales Mastercard</option>
               <option value="UNFCU Membership Share">UNFCU Membership Share</option>
               <option value="UNFCU Savings 0001">UNFCU Savings 0001</option>
               <option value="UNFCU Checking 0002">UNFCU Checking 0002</option>
               <option value="UNFCU Visa Elite 5659">UNFCU Visa Elite 5659</option>
+              <option value="UNFCU Visa Elite 1309">UNFCU Visa Elite 1309</option>
               <option value="UNFCU Personal Loan 7612">UNFCU Personal Loan 7612</option>
-              <option value="Banco General Star Credit Card">Banco General Star Credit Card</option>
-              <option value="Banco General Mileage Credit Card">Banco General Mileage Credit Card</option>
-              <option value="Cooperativa de Profesionales Credit Card">Cooperativa de Profesionales Credit Card</option>
-              <option value="Cooperativa de Profesionales Statement">Cooperativa de Profesionales Statement</option>
             </select>
           </div>
         )}
 
         <div style={{ display: 'flex', gap: '5px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <button onClick={() => setActiveTab('text')} style={{ flex: 1, padding: '10px', background: activeTab === 'text' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'text' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>ðŸ“ Text</button>
-          <button onClick={() => setActiveTab('sheet')} style={{ flex: 1, padding: '10px', background: activeTab === 'sheet' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'sheet' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>ðŸ“Š XLS/CSV</button>
-          <button onClick={() => setActiveTab('pdf')} style={{ flex: 1, padding: '10px', background: activeTab === 'pdf' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'pdf' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>ðŸ“„ PDF</button>
-          <button onClick={() => setActiveTab('image')} style={{ flex: 1, padding: '10px', background: activeTab === 'image' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'image' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>ðŸ“¸ Photo</button>
-          <button onClick={() => setActiveTab('coophtml')} style={{ flex: 1, padding: '10px', background: activeTab === 'coophtml' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'coophtml' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>ðŸ¦ Coop HTML</button>
-          <button onClick={() => setActiveTab('unfcu')} style={{ flex: 1, padding: '10px', background: activeTab === 'unfcu' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'unfcu' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>ðŸ›ï¸ UNFCU PDF</button>
+          <button onClick={() => setActiveTab('text')} style={{ flex: 1, padding: '10px', background: activeTab === 'text' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'text' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>Text</button>
+          <button onClick={() => setActiveTab('sheet')} style={{ flex: 1, padding: '10px', background: activeTab === 'sheet' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'sheet' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>XLS/CSV</button>
+          <button onClick={() => setActiveTab('pdf')} style={{ flex: 1, padding: '10px', background: activeTab === 'pdf' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'pdf' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>PDF</button>
+          <button onClick={() => setActiveTab('image')} style={{ flex: 1, padding: '10px', background: activeTab === 'image' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'image' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>Photo</button>
+          <button onClick={() => setActiveTab('coophtml')} style={{ flex: 1, padding: '10px', background: activeTab === 'coophtml' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'coophtml' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>Coop HTML</button>
+          <button onClick={() => setActiveTab('unfcu')} style={{ flex: 1, padding: '10px', background: activeTab === 'unfcu' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'unfcu' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>UNFCU PDF</button>
         </div>
 
         {parsedTransactions.length === 0 && activeTab === 'text' && (
           <div>
             <textarea placeholder="Paste your raw bank statement text here..." value={rawText} onChange={(e) => setRawText(e.target.value)} style={{ width: '100%', height: '180px', padding: '10px', marginBottom: '10px', borderRadius: '5px', border: '1px solid var(--color-border)' }} />
-            <button onClick={handleParseText} disabled={loading || !rawText.trim()} style={{ width: '100%', padding: '12px', background: '#007AFF', color: 'white', border: 'none', borderRadius: '5px' }}>{loading ? 'ðŸ§  Parsing...' : 'Parse Text'}</button>
+            <button onClick={handleParseText} disabled={loading || !rawText.trim()} style={{ width: '100%', padding: '12px', background: '#007AFF', color: 'white', border: 'none', borderRadius: '5px' }}>{loading ? 'Parsing...' : 'Parse Text'}</button>
           </div>
         )}
 
@@ -899,12 +898,12 @@ return (
               Preview ({parsedTransactions.length} found)
               {parsedTransactions.some((t) => t.willFailSave) && (
                 <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#b91c1c', marginLeft: '10px' }}>
-                  â›” {parsedTransactions.filter((t) => t.willFailSave).length} will be skipped (exact duplicate)
+                  Blocked: {parsedTransactions.filter((t) => t.willFailSave).length} will be skipped (exact duplicate)
                 </span>
               )}
               {parsedTransactions.some((t) => t.isDuplicate && !t.willFailSave) && (
                 <span style={{ fontSize: '14px', fontWeight: 'normal', color: '#a16207', marginLeft: '10px' }}>
-                  ðŸ” {parsedTransactions.filter((t) => t.isDuplicate && !t.willFailSave).length} possible duplicate{parsedTransactions.filter((t) => t.isDuplicate && !t.willFailSave).length === 1 ? '' : 's'} â€” review before saving
+                  Review: {parsedTransactions.filter((t) => t.isDuplicate && !t.willFailSave).length} possible duplicate{parsedTransactions.filter((t) => t.isDuplicate && !t.willFailSave).length === 1 ? '' : 's'} - review before saving
                 </span>
               )}
             </h3>
@@ -929,12 +928,12 @@ return (
                     <tr key={idx} style={{ borderBottom: '1px solid var(--color-border)', background: rowBackground }}>
                       <td style={{ padding: '8px' }}>{t.transaction_date ? t.transaction_date.slice(0, 10) : ''}</td>
                       <td style={{ padding: '8px' }}>
-                        {looksSuspicious && 'âš ï¸ '}
-                        {t.willFailSave ? 'â›” ' : (t.isDuplicate && 'ðŸ” ')}
+                        {looksSuspicious && 'Warning: '}
+                        {t.willFailSave ? 'Blocked: ' : (t.isDuplicate && 'Review: ')}
                         {t.description}
                         {t.isDuplicate && (
                           <div style={{ fontSize: '11px', color: t.willFailSave ? '#b91c1c' : '#a16207', marginTop: '2px', fontWeight: t.willFailSave ? 'bold' : 'normal' }}>
-                            {t.willFailSave ? 'Will be skipped on save â€” ' : 'Possible duplicate â€” '}{t.duplicateNote}
+                            {t.willFailSave ? 'Will be skipped on save - ' : 'Possible duplicate - '}{t.duplicateNote}
                           </div>
                         )}
                       </td>
@@ -949,10 +948,10 @@ return (
                           style={{ width: '100%', padding: '4px', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: '13px' }}
                         />
                         {t.matchedRule && (
-                          <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>âœ“ matched your rule ({t.matchedRule})</div>
+                          <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>Matched your rule ({t.matchedRule})</div>
                         )}
                         {t.learnedFromHistory && !t.matchedRule && (
-                          <div style={{ fontSize: '10px', color: '#15803d', marginTop: '2px' }}>âœ“ learned from your history</div>
+                          <div style={{ fontSize: '10px', color: '#15803d', marginTop: '2px' }}>Learned from your history</div>
                         )}
                       </td>
                       <td style={{ padding: '8px' }}>
@@ -965,7 +964,7 @@ return (
                         </select>
                       </td>
                       <td style={{ padding: '8px', textAlign: 'right', color: t.amount < 0 ? 'red' : 'green' }}>${Number(t.amount).toFixed(2)}</td>
-                      <td style={{ padding: '8px', textAlign: 'center' }}><button onClick={() => removeTransaction(idx)} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>ðŸ—‘</button></td>
+                      <td style={{ padding: '8px', textAlign: 'center' }}><button onClick={() => removeTransaction(idx)} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>Delete</button></td>
                     </tr>
                     );
                   })}
