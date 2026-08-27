@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { addDays, differenceInCalendarDays, format, parseISO } from 'date-fns';
+import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from 'date-fns';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import UpcomingPaymentsCalendar from '../../components/UpcomingPaymentsCalendar';
 import useScheduledPayments from '../../hooks/useScheduledPayments';
@@ -65,6 +65,73 @@ const dateForDayOfMonth = (year, monthIndex, day) => {
   return new Date(year, monthIndex, Math.min(day, lastDay));
 };
 
+const RECURRING_YAPPY_STOP_WORDS = new Set([
+  'yappy',
+  'pago',
+  'pagos',
+  'transferencia',
+  'transfer',
+  'transf',
+  'servicio',
+  'servicios',
+  'factura',
+  'cuenta',
+  'de',
+  'del',
+  'la',
+  'el',
+  'para',
+  'por',
+  'a',
+]);
+
+const recurringYappyKey = (transaction) => {
+  const raw = normalizeText(
+    `${transaction.merchant || ''} ${transaction.description || ''}`
+  );
+
+  if (!raw.includes('yappy')) return '';
+
+  return raw
+    .split(' ')
+    .filter(Boolean)
+    .filter((token) => !RECURRING_YAPPY_STOP_WORDS.has(token))
+    .filter((token) => !/^\d+$/.test(token))
+    .filter((token) => token.length >= 3)
+    .slice(0, 5)
+    .join(' ');
+};
+
+const monthDistance = (a, b) =>
+  (b.getFullYear() - a.getFullYear()) * 12 +
+  (b.getMonth() - a.getMonth());
+
+const nextMonthlyDateAfter = (lastDate, typicalDay, start) => {
+  let candidate = dateForDayOfMonth(
+    start.getFullYear(),
+    start.getMonth(),
+    typicalDay
+  );
+
+  if (candidate <= start) {
+    candidate = dateForDayOfMonth(
+      start.getFullYear(),
+      start.getMonth() + 1,
+      typicalDay
+    );
+  }
+
+  if (candidate <= lastDate) {
+    candidate = dateForDayOfMonth(
+      lastDate.getFullYear(),
+      lastDate.getMonth() + 1,
+      typicalDay
+    );
+  }
+
+  return candidate;
+};
+
 const CashFlow = () => {
   const { payments, loading: payLoading } = useScheduledPayments();
   const { transactions, loading: txLoading } = useTransactions(null, {
@@ -104,6 +171,105 @@ const CashFlow = () => {
       .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
     return { amount: Math.round(monthTotal), day };
+  }, [transactions]);
+
+  // Detect recurring fixed expenses paid through Yappy from transaction history.
+  // This is history-derived, not provider-specific. A candidate must repeat
+  // under a similar description fingerprint with a roughly monthly cadence.
+  const recurringYappy = useMemo(() => {
+    if (!transactions?.length) return [];
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const historyStart = addMonths(today, -6);
+    const groups = new Map();
+
+    transactions.forEach((t) => {
+      if (!t.dateString || Number(t.amount) >= 0) return;
+
+      const key = recurringYappyKey(t);
+      if (!key) return;
+
+      const date = parseISO(t.dateString);
+      if (
+        Number.isNaN(date.getTime()) ||
+        date < historyStart ||
+        date >= today
+      ) {
+        return;
+      }
+
+      const amount = Math.abs(Number(t.amount) || 0);
+      if (!amount) return;
+
+      const item = {
+        date,
+        amount,
+        label: String(t.merchant || t.description || key).trim(),
+        key,
+      };
+
+      const current = groups.get(key) || [];
+      current.push(item);
+      groups.set(key, current);
+    });
+
+    const detected = [];
+
+    groups.forEach((items, key) => {
+      const sorted = items.sort((a, b) => a.date - b.date);
+      if (sorted.length < 2) return;
+
+      const recent = sorted.slice(-4);
+      const gaps = [];
+
+      for (let i = 1; i < recent.length; i += 1) {
+        const days = differenceInCalendarDays(
+          recent[i].date,
+          recent[i - 1].date
+        );
+
+        const months = monthDistance(
+          recent[i - 1].date,
+          recent[i].date
+        );
+
+        if (months >= 1 && months <= 2) gaps.push(days);
+      }
+
+      const monthlyEnough =
+        gaps.length > 0 &&
+        gaps.filter((days) => days >= 20 && days <= 45).length >=
+          Math.ceil(gaps.length / 2);
+
+      if (!monthlyEnough) return;
+
+      const last = recent[recent.length - 1];
+      const typicalAmount = median(recent.map((item) => item.amount));
+      const typicalDay = Math.max(
+        1,
+        Math.min(
+          31,
+          Math.round(median(recent.map((item) => item.date.getDate())))
+        )
+      );
+
+      const nextDate = nextMonthlyDateAfter(
+        last.date,
+        typicalDay,
+        today
+      );
+
+      detected.push({
+        key,
+        label: last.label || key,
+        amount: typicalAmount,
+        nextDate,
+        nextDateStr: format(nextDate, 'yyyy-MM-dd'),
+      });
+    });
+
+    return detected.sort((a, b) => a.nextDate - b.nextDate);
   }, [transactions]);
 
   // V2.1 spending model:
@@ -338,6 +504,47 @@ const CashFlow = () => {
       });
     });
 
+    // History-derived recurring Yappy fixed expenses.
+    // If an equivalent scheduled payment already exists near the same date,
+    // skip the inferred item to avoid double-counting.
+    (recurringYappy || []).forEach((item) => {
+      if (!item.nextDate || item.nextDate > windowEnd) return;
+
+      const duplicateScheduled = (payments || []).some((p) => {
+        if (p.status === 'paid' || !p.payment_date) return false;
+
+        const scheduledDate = parseISO(p.payment_date);
+        if (Number.isNaN(scheduledDate.getTime())) return false;
+
+        const dateGap = Math.abs(
+          differenceInCalendarDays(scheduledDate, item.nextDate)
+        );
+
+        const scheduledAmount = Math.abs(Number(p.amount) || 0);
+        const amountTolerance = Math.max(5, item.amount * 0.2);
+        const sameAmount =
+          Math.abs(scheduledAmount - item.amount) <= amountTolerance;
+
+        const scheduledText = normalizeText(p.entity);
+        const sameEntity = item.key
+          .split(' ')
+          .filter(Boolean)
+          .some((token) => scheduledText.includes(token));
+
+        return dateGap <= 7 && (sameAmount || sameEntity);
+      });
+
+      if (duplicateScheduled) return;
+
+      events.push({
+        date: item.nextDate,
+        dateStr: item.nextDateStr,
+        label: `${item.label} (recurring Yappy)`,
+        amount: -Math.abs(item.amount),
+        type: 'recurring-yappy',
+      });
+    });
+
     // Future recurring income.
     // Strictly future (> today) so current cash does not double-count income
     // that may already have posted today.
@@ -412,6 +619,7 @@ const CashFlow = () => {
       income: 0,
       bill: 1,
       card: 1,
+      'recurring-yappy': 1,
       scenario: 2,
       'expected-cash': 3,
     };
@@ -462,6 +670,12 @@ const CashFlow = () => {
         .reduce((sum, e) => sum + e.amount, 0)
     );
 
+    const totalRecurringYappy = Math.abs(
+      events
+        .filter((e) => e.type === 'recurring-yappy')
+        .reduce((sum, e) => sum + e.amount, 0)
+    );
+
     const totalExpectedCashSpending = Math.abs(
       events
         .filter((e) => e.type === 'expected-cash')
@@ -487,7 +701,8 @@ const CashFlow = () => {
       totalIncome,
       totalBills,
       totalCards,
-      totalKnownCommitments: totalBills + totalCards,
+      totalRecurringYappy,
+      totalKnownCommitments: totalBills + totalCards + totalRecurringYappy,
       totalExpectedCashSpending,
       totalExpectedLifestyleSpending,
       expectedCardAccrual,
@@ -497,6 +712,7 @@ const CashFlow = () => {
   }, [
     payments,
     cards,
+    recurringYappy,
     cash,
     incAmt,
     incDay,
@@ -744,13 +960,55 @@ const CashFlow = () => {
               </p>
             </div>
 
+            {recurringYappy.length > 0 && (
+              <div className="bg-card border border-border rounded-xl p-4 mb-6">
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div>
+                    <p className="text-sm font-bold text-foreground">
+                      Recurring Yappy commitments detected
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Monthly Yappy payments inferred from repeated transaction
+                      history. Variable amounts use the recent median.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-muted-foreground shrink-0">
+                    {recurringYappy.length} detected
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                  {recurringYappy.map((item) => (
+                    <div
+                      key={item.key}
+                      className="rounded-lg border border-border bg-background/40 px-3 py-2"
+                    >
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {item.label}
+                      </p>
+                      <div className="flex items-center justify-between gap-3 mt-1">
+                        <span className="text-[11px] text-muted-foreground">
+                          Next ~ {item.nextDateStr}
+                        </span>
+                        <span className="text-sm font-bold text-foreground">
+                          {money(item.amount)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
               <SummaryStat
                 label={`Known commitments (${windowDays}d)`}
                 value={money(proj.totalKnownCommitments)}
                 sub={`${money(proj.totalBills)} bills + ${money(
                   proj.totalCards
-                )} card statements`}
+                )} card statements + ${money(
+                  proj.totalRecurringYappy
+                )} recurring Yappy`}
                 tone="neutral"
               />
 
@@ -840,9 +1098,9 @@ const CashFlow = () => {
               <div className="px-5 py-3 border-b border-border">
                 <p className="font-bold text-foreground">Cash flow timeline</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  This timeline shows actual cash timing. Expected credit-card
-                  purchases are not deducted here until they become a future
-                  statement obligation.
+                  This timeline shows actual cash timing, including detected
+                  recurring Yappy fixed expenses. Expected credit-card purchases
+                  are not deducted until they become a future statement obligation.
                 </p>
               </div>
 
@@ -927,6 +1185,7 @@ const eventTypeLabel = (type) => {
     income: 'Income',
     bill: 'Known bill',
     card: 'Card statement',
+    'recurring-yappy': 'Recurring Yappy commitment',
     'expected-cash': 'Expected cash spending',
     scenario: 'What-if scenario',
   };
