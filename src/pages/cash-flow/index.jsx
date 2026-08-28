@@ -18,6 +18,7 @@ const LS_INCOME_DAY = 'cashflow_income_day';
 // New key on purpose: V2.1 uses a different spending model, so an old
 // V2 manual/auto value should not silently override the new baseline.
 const LS_EXPECTED_DAILY = 'cashflow_expected_daily_spend_v21';
+const LS_YAPPY_OVERRIDES = 'cashflow_recurring_yappy_overrides_v1';
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', {
@@ -27,6 +28,25 @@ const money = (n) =>
 
 const percent = (n) =>
   `${Math.round(Math.max(0, Math.min(1, Number(n) || 0)) * 100)}%`;
+
+const readYappyOverrides = () => {
+  try {
+    const raw = localStorage.getItem(LS_YAPPY_OVERRIDES);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeYappyOverrides = (value) => {
+  try {
+    localStorage.setItem(LS_YAPPY_OVERRIDES, JSON.stringify(value || {}));
+  } catch {
+    // Ignore localStorage write errors and keep the current UI state.
+  }
+};
 
 const median = (values) => {
   const clean = values
@@ -85,21 +105,71 @@ const RECURRING_YAPPY_STOP_WORDS = new Set([
   'a',
 ]);
 
-const recurringYappyKey = (transaction) => {
+const recurringYappyTokens = (transaction) => {
   const raw = normalizeText(
     `${transaction.merchant || ''} ${transaction.description || ''}`
   );
 
-  if (!raw.includes('yappy')) return '';
+  if (!raw.includes('yappy')) return [];
 
   return raw
     .split(' ')
     .filter(Boolean)
     .filter((token) => !RECURRING_YAPPY_STOP_WORDS.has(token))
-    .filter((token) => !/^\d+$/.test(token))
+    .filter((token) => !/\d/.test(token))
     .filter((token) => token.length >= 3)
-    .slice(0, 5)
-    .join(' ');
+    .slice(0, 8);
+};
+
+const YAPPY_FIXED_PROVIDER_ALIASES = [
+  {
+    id: 'ensa',
+    label: 'ENSA',
+    terms: ['ensa'],
+  },
+  {
+    id: 'mas-movil',
+    label: 'Mas Movil',
+    terms: ['mas movil', 'masmovil', 'cable wireless', 'cable and wireless', 'cable & wireless'],
+  },
+  {
+    id: 'idaan',
+    label: 'IDAAN',
+    terms: ['idaan', 'idann'],
+  },
+];
+
+const detectYappyFixedProvider = (transaction) => {
+  const raw = normalizeText(
+    `${transaction.merchant || ''} ${transaction.description || ''}`
+  );
+
+  return (
+    YAPPY_FIXED_PROVIDER_ALIASES.find((provider) =>
+      provider.terms.some((term) => raw.includes(normalizeText(term)))
+    ) || null
+  );
+};
+
+const recurringYappyKey = (transaction) => {
+  const provider = detectYappyFixedProvider(transaction);
+  if (provider) return `provider:${provider.id}`;
+
+  return recurringYappyTokens(transaction).slice(0, 4).join(' ');
+};
+
+const tokenSimilarity = (a, b) => {
+  const left = new Set(a);
+  const right = new Set(b);
+
+  if (!left.size || !right.size) return 0;
+
+  let intersection = 0;
+  left.forEach((token) => {
+    if (right.has(token)) intersection += 1;
+  });
+
+  return intersection / Math.min(left.size, right.size);
 };
 
 const monthDistance = (a, b) =>
@@ -145,6 +215,13 @@ const CashFlow = () => {
   const [incomeDay, setIncomeDay] = useState('');
   const [expectedDailySpend, setExpectedDailySpend] = useState('');
   const [whatIfSpend, setWhatIfSpend] = useState('');
+  const [yappyOverrides, setYappyOverrides] = useState(() => readYappyOverrides());
+  const [editingYappyKey, setEditingYappyKey] = useState(null);
+  const [yappyEditForm, setYappyEditForm] = useState({
+    label: '',
+    amount: '',
+    nextDateStr: '',
+  });
 
   // Existing simple recurring-income model:
   // latest month's INCOME total, using the latest deposit's day-of-month.
@@ -182,13 +259,14 @@ const CashFlow = () => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const historyStart = addMonths(today, -6);
-    const groups = new Map();
+    const groups = [];
 
     transactions.forEach((t) => {
       if (!t.dateString || Number(t.amount) >= 0) return;
 
+      const tokens = recurringYappyTokens(t);
       const key = recurringYappyKey(t);
-      if (!key) return;
+      if (!key || tokens.length === 0) return;
 
       const date = parseISO(t.dateString);
       if (
@@ -202,21 +280,48 @@ const CashFlow = () => {
       const amount = Math.abs(Number(t.amount) || 0);
       if (!amount) return;
 
+      const provider = detectYappyFixedProvider(t);
+
       const item = {
         date,
         amount,
-        label: String(t.merchant || t.description || key).trim(),
+        label: provider?.label || String(t.merchant || t.description || key).trim(),
         key,
+        tokens,
+        providerId: provider?.id || null,
       };
 
-      const current = groups.get(key) || [];
-      current.push(item);
-      groups.set(key, current);
+      const matchingGroup = groups.find((group) => {
+        if (provider?.id && group.providerId) {
+          return provider.id === group.providerId;
+        }
+
+        return tokenSimilarity(group.tokens, tokens) >= 0.67;
+      });
+
+      if (matchingGroup) {
+        matchingGroup.items.push(item);
+        const overlap = matchingGroup.tokens.filter((token) =>
+          tokens.includes(token)
+        );
+        if (overlap.length >= 2) matchingGroup.tokens = overlap;
+      } else {
+        groups.push({
+          key,
+          tokens,
+          providerId: provider?.id || null,
+          items: [item],
+        });
+      }
     });
 
     const detected = [];
 
-    groups.forEach((items, key) => {
+    groups.forEach((group) => {
+      const { items } = group;
+      const key = group.providerId
+        ? `provider:${group.providerId}`
+        : group.tokens.slice(0, 4).join(' ') || group.key;
       const sorted = items.sort((a, b) => a.date - b.date);
       if (sorted.length < 2) return;
 
@@ -271,6 +376,107 @@ const CashFlow = () => {
 
     return detected.sort((a, b) => a.nextDate - b.nextDate);
   }, [transactions]);
+
+  const recurringYappyAdjusted = useMemo(() => {
+    return (recurringYappy || [])
+      .map((item) => {
+        const override = yappyOverrides[item.key] || {};
+
+        if (override.ignored) return null;
+
+        const amount =
+          override.amount !== undefined && override.amount !== ''
+            ? Math.max(0, Number(override.amount) || 0)
+            : item.amount;
+
+        const nextDateStr = override.nextDateStr || item.nextDateStr;
+        const nextDate = nextDateStr ? parseISO(nextDateStr) : item.nextDate;
+
+        return {
+          ...item,
+          label: override.label || item.label,
+          amount,
+          nextDate,
+          nextDateStr,
+          confirmed: Boolean(override.confirmed),
+          userAdjusted:
+            Boolean(override.label) ||
+            override.amount !== undefined ||
+            Boolean(override.nextDateStr),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.nextDate - b.nextDate);
+  }, [recurringYappy, yappyOverrides]);
+
+  const saveYappyOverrides = (nextValue) => {
+    setYappyOverrides(nextValue);
+    writeYappyOverrides(nextValue);
+  };
+
+  const confirmYappy = (item) => {
+    const next = {
+      ...yappyOverrides,
+      [item.key]: {
+        ...(yappyOverrides[item.key] || {}),
+        confirmed: true,
+        ignored: false,
+      },
+    };
+    saveYappyOverrides(next);
+  };
+
+  const ignoreYappy = (item) => {
+    const next = {
+      ...yappyOverrides,
+      [item.key]: {
+        ...(yappyOverrides[item.key] || {}),
+        ignored: true,
+        confirmed: false,
+      },
+    };
+    saveYappyOverrides(next);
+    if (editingYappyKey === item.key) setEditingYappyKey(null);
+  };
+
+  const startEditingYappy = (item) => {
+    setEditingYappyKey(item.key);
+    setYappyEditForm({
+      label: item.label || '',
+      amount: String(Math.round(Number(item.amount || 0) * 100) / 100),
+      nextDateStr: item.nextDateStr || '',
+    });
+  };
+
+  const saveYappyEdit = (item) => {
+    const amount = Math.max(0, Number(yappyEditForm.amount) || 0);
+
+    const next = {
+      ...yappyOverrides,
+      [item.key]: {
+        ...(yappyOverrides[item.key] || {}),
+        label: yappyEditForm.label.trim() || item.label,
+        amount,
+        nextDateStr: yappyEditForm.nextDateStr || item.nextDateStr,
+        confirmed: true,
+        ignored: false,
+      },
+    };
+
+    saveYappyOverrides(next);
+    setEditingYappyKey(null);
+  };
+
+  const restoreIgnoredYappy = (key) => {
+    const next = { ...yappyOverrides };
+    if (!next[key]) return;
+    next[key] = { ...next[key], ignored: false };
+    saveYappyOverrides(next);
+  };
+
+  const ignoredYappyCount = Object.values(yappyOverrides).filter(
+    (value) => value?.ignored
+  ).length;
 
   // V2.1 spending model:
   //
@@ -507,7 +713,7 @@ const CashFlow = () => {
     // History-derived recurring Yappy fixed expenses.
     // If an equivalent scheduled payment already exists near the same date,
     // skip the inferred item to avoid double-counting.
-    (recurringYappy || []).forEach((item) => {
+    (recurringYappyAdjusted || []).forEach((item) => {
       if (!item.nextDate || item.nextDate > windowEnd) return;
 
       const duplicateScheduled = (payments || []).some((p) => {
@@ -712,7 +918,7 @@ const CashFlow = () => {
   }, [
     payments,
     cards,
-    recurringYappy,
+    recurringYappyAdjusted,
     cash,
     incAmt,
     incDay,
@@ -960,43 +1166,207 @@ const CashFlow = () => {
               </p>
             </div>
 
-            {recurringYappy.length > 0 && (
+            {(recurringYappyAdjusted.length > 0 || ignoredYappyCount > 0) && (
               <div className="bg-card border border-border rounded-xl p-4 mb-6">
-                <div className="flex items-start justify-between gap-4 mb-3">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-3">
                   <div>
                     <p className="text-sm font-bold text-foreground">
-                      Recurring Yappy commitments detected
+                      Recurring Yappy commitments
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Monthly Yappy payments inferred from repeated transaction
-                      history. Variable amounts use the recent median.
+                      MoFlow infers monthly fixed expenses from Yappy history.
+                      Confirm, edit, or ignore each one. Ignoring a recurrence
+                      never deletes historical transactions.
                     </p>
                   </div>
-                  <span className="text-xs font-bold text-muted-foreground shrink-0">
-                    {recurringYappy.length} detected
-                  </span>
+                  <div className="text-xs text-muted-foreground shrink-0">
+                    {recurringYappyAdjusted.length} active
+                    {ignoredYappyCount > 0 ? ` · ${ignoredYappyCount} ignored` : ''}
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-                  {recurringYappy.map((item) => (
-                    <div
-                      key={item.key}
-                      className="rounded-lg border border-border bg-background/40 px-3 py-2"
-                    >
-                      <p className="text-sm font-semibold text-foreground truncate">
-                        {item.label}
-                      </p>
-                      <div className="flex items-center justify-between gap-3 mt-1">
-                        <span className="text-[11px] text-muted-foreground">
-                          Next ~ {item.nextDateStr}
-                        </span>
-                        <span className="text-sm font-bold text-foreground">
-                          {money(item.amount)}
-                        </span>
+                <div className="space-y-3">
+                  {recurringYappyAdjusted.map((item) => {
+                    const includedInForecast =
+                      item.nextDate &&
+                      item.nextDate >= new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()) &&
+                      item.nextDate <= addDays(
+                        new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()),
+                        windowDays
+                      );
+
+                    const isEditing = editingYappyKey === item.key;
+
+                    return (
+                      <div
+                        key={item.key}
+                        className="rounded-xl border border-border bg-background/40 p-3"
+                      >
+                        {isEditing ? (
+                          <div className="grid grid-cols-1 md:grid-cols-[1fr_150px_170px_auto] gap-2 items-end">
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                                Name
+                              </label>
+                              <input
+                                type="text"
+                                value={yappyEditForm.label}
+                                onChange={(e) =>
+                                  setYappyEditForm((prev) => ({
+                                    ...prev,
+                                    label: e.target.value,
+                                  }))
+                                }
+                                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-card"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                                Expected amount
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={yappyEditForm.amount}
+                                onChange={(e) =>
+                                  setYappyEditForm((prev) => ({
+                                    ...prev,
+                                    amount: e.target.value,
+                                  }))
+                                }
+                                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-card"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                                Next expected date
+                              </label>
+                              <input
+                                type="date"
+                                value={yappyEditForm.nextDateStr}
+                                onChange={(e) =>
+                                  setYappyEditForm((prev) => ({
+                                    ...prev,
+                                    nextDateStr: e.target.value,
+                                  }))
+                                }
+                                className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-card"
+                              />
+                            </div>
+
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => saveYappyEdit(item)}
+                                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold"
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingYappyKey(null)}
+                                className="px-3 py-2 rounded-lg bg-muted text-xs font-bold text-muted-foreground"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-foreground truncate">
+                                  {item.label}
+                                </p>
+                                <span
+                                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                                    item.confirmed
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : 'bg-amber-100 text-amber-700'
+                                  }`}
+                                >
+                                  {item.confirmed ? 'Confirmed' : 'Detected'}
+                                </span>
+                                {item.userAdjusted && (
+                                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                    Adjusted
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Next expected {item.nextDateStr} · {money(item.amount)}
+                              </p>
+
+                              <p
+                                className={`text-[11px] mt-1 ${
+                                  includedInForecast
+                                    ? 'text-emerald-700'
+                                    : 'text-muted-foreground'
+                                }`}
+                              >
+                                {includedInForecast
+                                  ? `Included in your ${windowDays}-day cash projection.`
+                                  : `Outside your current ${windowDays}-day forecast.`}
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 shrink-0">
+                              {!item.confirmed && (
+                                <button
+                                  type="button"
+                                  onClick={() => confirmYappy(item)}
+                                  className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold"
+                                >
+                                  Confirm
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => startEditingYappy(item)}
+                                className="px-3 py-1.5 rounded-lg bg-muted text-foreground text-xs font-bold"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => ignoreYappy(item)}
+                                className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-xs font-bold"
+                              >
+                                Ignore recurrence
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+
+                {ignoredYappyCount > 0 && (
+                  <div className="mt-4 border-t border-border pt-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                      Ignored recurrences
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(yappyOverrides)
+                        .filter(([, value]) => value?.ignored)
+                        .map(([key, value]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => restoreIgnoredYappy(key)}
+                            className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground"
+                          >
+                            Restore {value?.label || key.replace('provider:', '')}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
