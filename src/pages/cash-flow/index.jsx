@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from 'date-fns';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import UpcomingPaymentsCalendar from '../../components/UpcomingPaymentsCalendar';
+import FlowLiteSetup from './FlowLiteSetup';
 import useScheduledPayments from '../../hooks/useScheduledPayments';
 import useTransactions from '../../hooks/useTransactions';
 import useCreditCards from '../../hooks/useCreditCards';
@@ -208,6 +210,12 @@ const CashFlow = () => {
     filters: { dateRange: 'all' },
   });
   const { cards, loading: cardsLoading } = useCreditCards();
+
+  // Flow Lite onboarding bridge: only active when arriving from the Cards
+  // post-save CTA (/cash-flow?setup=1). Normal visits are unaffected.
+  const [searchParams] = useSearchParams();
+  const setupMode = searchParams.get('setup') === '1';
+  const [flowLiteDismissed, setFlowLiteDismissed] = useState(false);
 
   const [windowDays, setWindowDays] = useState(14);
   const [availableCash, setAvailableCash] = useState('');
@@ -968,6 +976,19 @@ const CashFlow = () => {
             commitments, and normal spending behavior.
           </p>
         </div>
+
+        {setupMode && !flowLiteDismissed && (
+          <FlowLiteSetup
+            cards={cards}
+            payments={payments}
+            loading={loading}
+            availableCash={availableCash}
+            incomeAmount={incomeAmount}
+            onCashChange={setCash}
+            onIncomeAmountChange={setIncAmt}
+            onSeeFullFlow={() => setFlowLiteDismissed(true)}
+          />
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">

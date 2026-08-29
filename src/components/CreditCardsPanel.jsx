@@ -39,7 +39,7 @@ const CARD_SUGGESTIONS = [
 ];
 
 const CreditCardsPanel = forwardRef(function CreditCardsPanel(
-  { cards, loading, onSave, onDelete, onSetPaid },
+  { cards, loading, onSave, onDelete, onSetPaid, onSaved },
   ref
 ) {
   const [form, setForm] = useState(null); // null = closed
@@ -114,6 +114,8 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
     try {
       await onSave(payload);
       setForm(null);
+      // Let the Cards page surface the "Check my Flow" bridge after a save.
+      onSaved?.(payload);
     } catch (e) {
       alert('Failed to save card: ' + (e?.message || e));
     } finally {

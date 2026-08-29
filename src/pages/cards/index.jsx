@@ -1,4 +1,5 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import CreditCardsPanel from '../../components/CreditCardsPanel';
@@ -19,10 +20,17 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractio
 const Cards = () => {
   const { cards, loading, saveCard, deleteCard, setPaid, feeSavingsTotals } = useCreditCards();
 
+  const navigate = useNavigate();
+
   // Ref to trigger the panel's EXISTING statement scanner from the hero CTA,
   // rather than duplicating the scan pipeline.
   const panelRef = useRef(null);
   const scanStatement = () => panelRef.current?.openScanner();
+
+  // Post-save bridge to Flow: shown after a card is saved so the user can take
+  // the next value step ("Can you comfortably cover this?"). The user chooses
+  // the CTA; navigation is never automatic.
+  const [showFlowBridge, setShowFlowBridge] = useState(false);
 
   const hasCards = !loading && cards.length > 0;
 
@@ -45,6 +53,39 @@ const Cards = () => {
       <PrimaryNavBar />
       {/* Extra bottom padding so the mobile BottomNav never covers content. */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
+
+        {/* POST-SAVE BRIDGE TO FLOW */}
+        {showFlowBridge && (
+          <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/70 dark:bg-blue-950/20 shadow-sm p-5 relative">
+            <button
+              onClick={() => setShowFlowBridge(false)}
+              aria-label="Dismiss"
+              className="absolute top-3 right-3 p-1 text-muted-foreground hover:text-foreground"
+            >
+              <Icon name="X" size={18} />
+            </button>
+            <div className="flex items-start gap-3 pr-6">
+              <div className="bg-blue-600/10 p-2.5 rounded-xl shrink-0">
+                <Icon name="Waves" size={22} className="text-blue-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-extrabold text-foreground">
+                  Can you comfortably cover this statement?
+                </p>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Tell MoFlow what cash you have available and when money comes in next.
+                </p>
+                <button
+                  onClick={() => navigate('/cash-flow?setup=1')}
+                  className="mt-4 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                >
+                  <Icon name="ArrowRight" size={18} />
+                  Check my Flow
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* HERO */}
         {loading ? (
@@ -76,7 +117,7 @@ const Cards = () => {
           </div>
         )}
 
-        <CreditCardsPanel ref={panelRef} cards={cards} loading={loading} onSave={saveCard} onDelete={deleteCard} onSetPaid={setPaid} />
+        <CreditCardsPanel ref={panelRef} cards={cards} loading={loading} onSave={saveCard} onDelete={deleteCard} onSetPaid={setPaid} onSaved={() => setShowFlowBridge(true)} />
 
         {hasCards && (
           <p className="text-[11px] text-muted-foreground mt-3">
