@@ -10,6 +10,8 @@ import SpendingAnalytics from './pages/spending-analytics';
 import CashFlow from './pages/cash-flow';
 import Cards from './pages/cards';
 import ActionPlan from './pages/action-plan';
+import Bills from './pages/bills';
+import More from './pages/more';
 import BottomNav from './components/navigation/BottomNav';
 
 const Routes = () => {
@@ -19,7 +21,7 @@ const Routes = () => {
       <ScrollToTop />
       <RouterRoutes>
         {/* Define your route here */}
-        <Route path="/" element={<FinancialOverview />} />
+        <Route path="/" element={<Cards />} />
         <Route path="/goals-progress" element={<GoalsProgress />} />
         <Route path="/budget-tracking" element={<BudgetTracking />} />
         <Route path="/cash-flow" element={<CashFlow />} />
@@ -27,6 +29,8 @@ const Routes = () => {
         <Route path="/action-plan" element={<ActionPlan />} />
         <Route path="/financial-overview" element={<FinancialOverview />} />
         <Route path="/spending-analytics" element={<SpendingAnalytics />} />
+        <Route path="/bills" element={<Bills />} />
+        <Route path="/more" element={<More />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       <BottomNav />
