@@ -19,3 +19,16 @@ export function daysUntil(date) {
   start.setHours(0, 0, 0, 0);
   return Math.round((date.getTime() - start.getTime()) / 86400000);
 }
+
+// Educational ONE-MONTH financing-cost estimate for carrying a statement
+// balance at a given APR: balance * (apr/100) / 12. This is a simple
+// approximation for illustration only -- it is NOT a lifetime cost, NOT the
+// issuer's exact charge, and ignores grace periods and compounding. Returns a
+// currency-rounded number, or null when it can't be estimated (no balance or
+// no APR).
+export function estimateMonthlyFinancingCost(statementBalance, apr) {
+  const balance = Number(statementBalance) || 0;
+  const rate = Number(apr) || 0;
+  if (balance <= 0 || rate <= 0) return null;
+  return Math.round((balance * (rate / 100)) / 12 * 100) / 100;
+}

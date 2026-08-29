@@ -1,7 +1,16 @@
-import React, { useState } from 'react';
+import React, {
+  useState,
+  useRef,
+  forwardRef,
+  useImperativeHandle,
+} from 'react';
 import { format } from 'date-fns';
 import Icon from './AppIcon';
-import { nextDueDate, daysUntil } from '../lib/cardGuard';
+import {
+  nextDueDate,
+  daysUntil,
+  estimateMonthlyFinancingCost,
+} from '../lib/cardGuard';
 import { authHeader } from '../lib/apiClient';
 
 const money = (n) =>
@@ -29,23 +38,40 @@ const CARD_SUGGESTIONS = [
   'UNFCU Visa Elite 5659',
 ];
 
-export default function CreditCardsPanel({
-  cards,
-  loading,
-  onSave,
-  onDelete,
-  onSetPaid,
-}) {
+const CreditCardsPanel = forwardRef(function CreditCardsPanel(
+  { cards, loading, onSave, onDelete, onSetPaid },
+  ref
+) {
   const [form, setForm] = useState(null); // null = closed
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState(false); // true once a scan pre-fills the form
+  const fileInputRef = useRef(null);
 
-  const openAdd = () =>
+  const openAdd = () => {
+    setScanned(false);
     setForm({
       ...BLANK,
       statement_paid: false,
       _origBalance: '',
     });
+  };
+
+  // Trigger the statement scanner from outside the panel (e.g. the Cards hero
+  // CTA). Opens the add form if none is open, then reuses the same hidden file
+  // input and scan pipeline -- no second scanner implementation.
+  const triggerScan = () => fileInputRef.current?.click();
+
+  useImperativeHandle(ref, () => ({
+    openScanner: () => {
+      setForm((current) =>
+        current || { ...BLANK, statement_paid: false, _origBalance: '' }
+      );
+      // Defer so the form/input are settled before opening the file picker.
+      requestAnimationFrame(triggerScan);
+    },
+    openAdd,
+  }));
 
   const openEdit = (c) =>
     setForm({
@@ -114,6 +140,7 @@ export default function CreditCardsPanel({
     if (!file) return;
 
     setScanning(true);
+    setScanned(false);
 
     const reader = new FileReader();
 
@@ -162,7 +189,9 @@ export default function CreditCardsPanel({
 
           const d = await resp.json();
 
-          setForm((f) => ({
+          setForm((prev) => {
+            const f = prev || { ...BLANK, statement_paid: false, _origBalance: '' };
+            return {
             ...f,
             card_name: f.card_name || d.card_name_hint || '',
             current_balance:
@@ -196,7 +225,10 @@ export default function CreditCardsPanel({
               d.statement_close_day !== null
                 ? String(d.statement_close_day)
                 : f.statement_close_day,
-          }));
+            };
+          });
+
+          setScanned(true);
         } catch (err) {
           alert(
             'Could not read the statement photo — enter the numbers manually.\n\n' +
@@ -216,8 +248,25 @@ export default function CreditCardsPanel({
   const inputCls =
     'w-full border border-border rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-background text-foreground';
 
+  // Live one-month financing estimate from the values currently in the form,
+  // so the user sees the implication before saving.
+  const formFinancingEstimate = form
+    ? estimateMonthlyFinancingCost(form.statement_balance, form.apr)
+    : null;
+
   return (
     <div className="bg-card rounded-xl border border-border shadow-sm mb-8 overflow-hidden">
+      {/* Always-mounted file input so the scanner can be triggered from the
+          in-form button OR externally (Cards hero) via the imperative handle. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleScanStatement}
+        disabled={scanning}
+        className="hidden"
+      />
+
       <div className="px-5 py-3 border-b border-border flex items-center justify-between">
         <div className="font-bold text-foreground">
           Credit cards — financing guard
@@ -237,8 +286,11 @@ export default function CreditCardsPanel({
         <div className="p-5 bg-blue-50/40 dark:bg-blue-950/10 border-b border-border">
           {/* SCAN STATEMENT */}
           <div className="mb-4">
-            <label
-              className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold cursor-pointer transition-colors ${
+            <button
+              type="button"
+              onClick={triggerScan}
+              disabled={scanning}
+              className={`inline-flex items-center gap-2 px-4 py-3 rounded-md text-sm font-semibold transition-colors min-h-[44px] ${
                 scanning
                   ? 'bg-muted text-muted-foreground cursor-wait'
                   : 'bg-card border border-blue-200 text-blue-700 hover:bg-blue-50'
@@ -249,21 +301,29 @@ export default function CreditCardsPanel({
               {scanning
                 ? 'Reading statement…'
                 : 'Scan or upload statement'}
-
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleScanStatement}
-                disabled={scanning}
-                className="hidden"
-              />
-            </label>
+            </button>
 
             <p className="text-[11px] text-muted-foreground mt-1">
               Take a photo or pick a screenshot of the statement&apos;s summary
               box — we&apos;ll fill the numbers below for you to confirm.
             </p>
           </div>
+
+          {/* STATEMENT DETECTED confirmation */}
+          {scanned && (
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2">
+              <Icon
+                name="CheckCircle2"
+                size={16}
+                className="text-emerald-600 mt-0.5 shrink-0"
+              />
+              <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                <span className="font-bold">Statement detected.</span> Review
+                the extracted details below and edit anything before saving —
+                nothing is saved until you confirm.
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* CARD NAME */}
@@ -396,10 +456,33 @@ export default function CreditCardsPanel({
             </div>
           </div>
 
+          {/* FINANCING-COST ESTIMATE (educational, one month, only when APR known) */}
+          {formFinancingEstimate !== null && (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                <span className="font-bold">Estimate:</span> carrying this{' '}
+                {money(form.statement_balance)} statement could cost about{' '}
+                <span className="font-bold">
+                  {money(formFinancingEstimate)}
+                </span>{' '}
+                in financing over one month at {Number(form.apr)}% APR. Paying
+                the statement in full by the due date may avoid this cost,
+                subject to your card&apos;s terms. This is an educational
+                one-month estimate, not your total financing cost.
+              </p>
+            </div>
+          )}
+
+          {/* REMINDER + FLOW communication */}
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Save the card so MoFlow can track its due date, include it in your
+            payment planning, and factor the statement balance into Flow.
+          </p>
+
           <div className="flex justify-end gap-2 mt-4">
             <button
               onClick={() => setForm(null)}
-              className="px-4 py-2 text-muted-foreground hover:bg-muted rounded-md text-sm font-medium"
+              className="px-4 py-3 min-h-[44px] text-muted-foreground hover:bg-muted rounded-md text-sm font-medium"
             >
               Cancel
             </button>
@@ -407,7 +490,7 @@ export default function CreditCardsPanel({
             <button
               onClick={save}
               disabled={busy}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              className="px-4 py-3 min-h-[44px] bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
             >
               {busy ? 'Saving…' : 'Save card'}
             </button>
@@ -439,7 +522,9 @@ export default function CreditCardsPanel({
       )}
     </div>
   );
-}
+});
+
+export default CreditCardsPanel;
 
 function CardRow({ c, onEdit, onDelete, onSetPaid }) {
   const due = nextDueDate(c.due_day);
@@ -450,6 +535,7 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
   const min = Number(c.minimum_payment) || 0;
   const apr = Number(c.apr) || 0;
   const paid = !!c.statement_paid;
+  const financingEstimate = estimateMonthlyFinancingCost(bal, apr);
 
   const urgent = dLeft !== null && dLeft <= 3;
   const soon = dLeft !== null && dLeft <= 7;
@@ -546,7 +632,8 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
                   )
                 </span>
               )}{' '}
-              to avoid financing.
+              in full to help avoid purchase financing charges, subject to your
+              card&apos;s terms.
             </p>
           ) : (
             <p className="text-sm text-muted-foreground mt-0.5">
@@ -556,9 +643,25 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
 
           {!paid && min > 0 && (
             <p className="text-xs text-muted-foreground mt-0.5">
-              Minimum{' '}
-              <span className="font-semibold">{money(min)}</span> avoids a late
-              fee (the rest still accrues interest).
+              Paying at least the minimum{' '}
+              <span className="font-semibold">{money(min)}</span> by the due
+              date generally helps avoid late-payment penalties (the remaining
+              balance still accrues interest).
+            </p>
+          )}
+
+          {!paid && financingEstimate !== null && (
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+              Estimated financing to carry this statement one month: about{' '}
+              <span className="font-semibold">{money(financingEstimate)}</span>{' '}
+              at {apr}% APR (educational one-month estimate, not the total).
+            </p>
+          )}
+
+          {!paid && bal > 0 && due && (
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1 flex items-center gap-1">
+              <Icon name="CheckCircle2" size={12} />
+              This statement is included in Flow.
             </p>
           )}
         </div>
