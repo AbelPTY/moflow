@@ -4,6 +4,8 @@ import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from '
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import UpcomingPaymentsCalendar from '../../components/UpcomingPaymentsCalendar';
 import FlowLiteSetup from './FlowLiteSetup';
+import BalanceScanner from '../../components/BalanceScanner';
+import Icon from '../../components/AppIcon';
 import useScheduledPayments from '../../hooks/useScheduledPayments';
 import useTransactions from '../../hooks/useTransactions';
 import useCreditCards from '../../hooks/useCreditCards';
@@ -216,6 +218,11 @@ const CashFlow = () => {
   const [searchParams] = useSearchParams();
   const setupMode = searchParams.get('setup') === '1';
   const [flowLiteDismissed, setFlowLiteDismissed] = useState(false);
+
+  // Balance-screenshot scanner for the full Flow available-cash control. The
+  // scanned total is applied only when the user explicitly confirms; it reuses
+  // the existing setCash (cashflow_available_cash) — never auto-overwritten.
+  const [showBalanceScanner, setShowBalanceScanner] = useState(false);
 
   const [windowDays, setWindowDays] = useState(14);
   const [availableCash, setAvailableCash] = useState('');
@@ -1010,6 +1017,14 @@ const CashFlow = () => {
             <p className="text-[11px] text-muted-foreground mt-1">
               Your current spendable cash across checking, savings, and cash.
             </p>
+            <button
+              type="button"
+              onClick={() => setShowBalanceScanner((s) => !s)}
+              className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
+            >
+              <Icon name="Camera" size={14} />
+              Scan balances
+            </button>
           </div>
 
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
@@ -1099,6 +1114,18 @@ const CashFlow = () => {
             </div>
           </div>
         </div>
+
+        {showBalanceScanner && (
+          <div className="mb-6">
+            <BalanceScanner
+              onApply={(total) => {
+                setCash(String(Math.round((Number(total) || 0) * 100) / 100));
+                setShowBalanceScanner(false);
+              }}
+              onClose={() => setShowBalanceScanner(false)}
+            />
+          </div>
+        )}
 
         {loading ? (
           <div className="bg-card p-12 rounded-xl border border-border text-center text-muted-foreground">

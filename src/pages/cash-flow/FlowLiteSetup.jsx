@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import Icon from '../../components/AppIcon';
+import BalanceScanner from '../../components/BalanceScanner';
 import { nextDueDate } from '../../lib/cardGuard';
 
 // Flow Lite: the minimal Cards -> Flow onboarding bridge. It asks only three
@@ -61,6 +62,14 @@ const FlowLiteSetup = ({
   onSeeFullFlow,
 }) => {
   const [nextIncomeDate, setNextIncomeDate] = useState(readInitialDate);
+  const [showScanner, setShowScanner] = useState(false);
+
+  // Explicit apply: only the user's confirmation in BalanceScanner reaches the
+  // existing available-cash setter. Available cash is never auto-overwritten.
+  const applyScannedTotal = (total) => {
+    onCashChange(String(Math.round((Number(total) || 0) * 100) / 100));
+    setShowScanner(false);
+  };
 
   const handleDateChange = (value) => {
     setNextIncomeDate(value);
@@ -164,6 +173,14 @@ const FlowLiteSetup = ({
             placeholder="0.00"
             className={inputCls}
           />
+          <button
+            type="button"
+            onClick={() => setShowScanner((s) => !s)}
+            className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
+          >
+            <Icon name="Camera" size={14} />
+            Scan balances
+          </button>
         </div>
 
         <div>
@@ -194,6 +211,10 @@ const FlowLiteSetup = ({
           />
         </div>
       </div>
+
+      {showScanner && (
+        <BalanceScanner onApply={applyScannedTotal} onClose={() => setShowScanner(false)} />
+      )}
 
       {/* FLOW LITE RESULT */}
       {loading ? (
