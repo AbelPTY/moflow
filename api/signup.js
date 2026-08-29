@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { applyRateLimit } from './rateLimit.js';
+import { applyRateLimit } from '../server/rateLimit.js';
 import { safeError } from '../server/safeError.js';
 
 // Server-enforced signup (P0 Phase D2, revised for single-use approval tokens).
