@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { authHeader } from '../lib/apiClient';
 import { flagDuplicateActivityRows } from '../lib/dedupeTransactions';
+import { trackProductEvent } from '../lib/analytics';
 
 // Reusable recent-activity screenshot importer. Reads ONE banking-app activity
 // screenshot the user chooses, extracts visible transactions (via the shared
@@ -54,7 +55,10 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
   const effectiveAccount = (usingCustom ? customAccount : account).trim();
   const accountChosen = effectiveAccount.length > 0;
 
-  const triggerPick = () => fileInputRef.current?.click();
+  const triggerPick = () => {
+    trackProductEvent('activity_scan_started', { source_screen: 'activity' });
+    fileInputRef.current?.click();
+  };
 
   const runDuplicateFlags = async (mapped) => {
     // Query the user's existing rows in the scanned date range and flag likely
@@ -122,6 +126,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
 
           const data = await resp.json();
           const txns = Array.isArray(data?.transactions) ? data.transactions : [];
+          trackProductEvent('activity_scan_completed', { source_screen: 'activity' });
 
           const mapped = txns.map((t, idx) => ({
             id: `row-${idx}-${Date.now()}`,

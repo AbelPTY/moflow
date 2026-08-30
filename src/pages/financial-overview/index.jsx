@@ -17,6 +17,7 @@ import rulesData from '../../rules/merchant_rules.json';
 import { classifyTransaction } from '../../lib/engine/ruleMatcher';
 import useUserMerchantRules from '../../hooks/useUserMerchantRules';
 import useOnboarding from '../../hooks/useOnboarding';
+import { trackProductEvent } from '../../lib/analytics';
 
 const COLORS = {
   'NEEDS': '#10B981',   // Emerald
@@ -544,6 +545,7 @@ const handleDeleteTransaction = async (t) => {
             <RecentActivityScanner
               accounts={uniqueAccounts}
               onImported={() => {
+                trackProductEvent('activity_import_completed', { source_screen: 'activity' });
                 updateOnboarding({ activityImportCompleted: true });
                 if (refetch) refetch();
               }}

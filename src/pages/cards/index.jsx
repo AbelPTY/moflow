@@ -6,6 +6,7 @@ import CreditCardsPanel from '../../components/CreditCardsPanel';
 import Icon from '../../components/AppIcon';
 import useCreditCards from '../../hooks/useCreditCards';
 import useOnboarding from '../../hooks/useOnboarding';
+import { trackProductEvent } from '../../lib/analytics';
 import {
   nextDueDate,
   daysUntil,
@@ -37,10 +38,12 @@ const Cards = () => {
   const [showFlowBridge, setShowFlowBridge] = useState(false);
 
   const handleCardSaved = () => {
+    trackProductEvent('card_saved', { source_screen: 'cards' });
     if (!onboarding.flowBridgeDismissed) setShowFlowBridge(true);
   };
 
   const goToFlow = () => {
+    trackProductEvent('onboarding_flow_bridge_clicked', { source_screen: 'cards' });
     updateOnboarding({ flowBridgeDismissed: true });
     setShowFlowBridge(false);
     navigate('/cash-flow?setup=1');

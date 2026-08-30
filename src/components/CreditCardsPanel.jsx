@@ -12,6 +12,7 @@ import {
   estimateMonthlyFinancingCost,
 } from '../lib/cardGuard';
 import { authHeader } from '../lib/apiClient';
+import { trackProductEvent } from '../lib/analytics';
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', {
@@ -60,7 +61,10 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
   // Trigger the statement scanner from outside the panel (e.g. the Cards hero
   // CTA). Opens the add form if none is open, then reuses the same hidden file
   // input and scan pipeline -- no second scanner implementation.
-  const triggerScan = () => fileInputRef.current?.click();
+  const triggerScan = () => {
+    trackProductEvent('card_scan_started', { source_screen: 'cards' });
+    fileInputRef.current?.click();
+  };
 
   useImperativeHandle(ref, () => ({
     openScanner: () => {
@@ -231,6 +235,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
           });
 
           setScanned(true);
+          trackProductEvent('card_scan_completed', { source_screen: 'cards' });
         } catch (err) {
           alert(
             'Could not read the statement photo — enter the numbers manually.\n\n' +

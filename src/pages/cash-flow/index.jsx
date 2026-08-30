@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from 'date-fns';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
@@ -8,6 +8,7 @@ import ExtraIncomePanel from './ExtraIncomePanel';
 import BalanceScanner from '../../components/BalanceScanner';
 import Icon from '../../components/AppIcon';
 import useOnboarding from '../../hooks/useOnboarding';
+import { trackProductEvent } from '../../lib/analytics';
 import useScheduledPayments from '../../hooks/useScheduledPayments';
 import useTransactions from '../../hooks/useTransactions';
 import useCreditCards from '../../hooks/useCreditCards';
@@ -336,6 +337,11 @@ const CashFlow = () => {
 
   const navigate = useNavigate();
   const { onboarding, updateOnboarding } = useOnboarding();
+
+  // Fire flow_opened exactly once per Flow page mount (not per render).
+  useEffect(() => {
+    trackProductEvent('flow_opened', { source_screen: 'flow' });
+  }, []);
 
   // Balance-screenshot scanner for the full Flow available-cash control. The
   // scanned total is applied only when the user explicitly confirms; it reuses
@@ -820,10 +826,26 @@ const CashFlow = () => {
   };
 
   // --- Look-ahead controls ---
+  // custom_horizon_used tracks a DELIBERATE user action, not restoration of a
+  // saved horizon on load. This ref fires the event at most once per custom
+  // "session" (until the user switches back to a preset), so repeated date
+  // tweaks or rerenders don't emit duplicate identical events. It starts false
+  // and is only flipped by an actual handler, so a page that initializes in
+  // custom mode never emits the event.
+  const customHorizonTrackedRef = useRef(false);
+  const trackCustomHorizonOnce = () => {
+    if (!customHorizonTrackedRef.current) {
+      customHorizonTrackedRef.current = true;
+      trackProductEvent('custom_horizon_used', { source_screen: 'flow' });
+    }
+  };
+
   const selectPreset = (days) => {
     setLookaheadMode('preset');
     writeLookaheadMode('preset');
     setWindowDays(days);
+    // Leaving custom re-arms the event for a genuine future re-engagement.
+    customHorizonTrackedRef.current = false;
   };
 
   const selectCustomMode = () => {
@@ -831,7 +853,10 @@ const CashFlow = () => {
     writeLookaheadMode('custom');
     // Restore the last valid (non-past) custom date if we have one.
     const diff = daysFromTodayTo(customDate);
-    if (diff !== null) setWindowDays(diff);
+    if (diff !== null) {
+      setWindowDays(diff);
+      trackCustomHorizonOnce();
+    }
   };
 
   const changeCustomDate = (value) => {
@@ -843,6 +868,7 @@ const CashFlow = () => {
       setLookaheadMode('custom');
       writeLookaheadMode('custom');
       setWindowDays(diff);
+      trackCustomHorizonOnce();
     }
   };
 
@@ -858,8 +884,10 @@ const CashFlow = () => {
     writeExtraIncome(next);
   };
 
-  const addExtraIncome = (item) =>
+  const addExtraIncome = (item) => {
     persistExtraIncome([...extraIncome, { ...item, id: newExtraIncomeId() }]);
+    trackProductEvent('extra_income_added', { source_screen: 'flow' });
+  };
 
   const updateExtraIncome = (id, patch) =>
     persistExtraIncome(
@@ -1247,8 +1275,12 @@ const CashFlow = () => {
             <button
               type="button"
               onClick={() => {
-                setBalanceApplied(false);
-                setShowBalanceScanner((s) => !s);
+                const opening = !showBalanceScanner;
+                if (opening) {
+                  setBalanceApplied(false);
+                  trackProductEvent('balance_scan_started', { source_screen: 'flow' });
+                }
+                setShowBalanceScanner(opening);
               }}
               className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
             >
@@ -1400,6 +1432,7 @@ const CashFlow = () => {
               onApply={(total) => {
                 setCash(String(Math.round((Number(total) || 0) * 100) / 100));
                 updateOnboarding({ balanceScanCompleted: true });
+                trackProductEvent('balance_scan_applied', { source_screen: 'flow' });
                 setBalanceApplied(true);
                 setShowBalanceScanner(false);
               }}
@@ -1496,7 +1529,10 @@ const CashFlow = () => {
                         Not now
                       </button>
                       <button
-                        onClick={() => navigate('/financial-overview?scan=activity')}
+                        onClick={() => {
+                          trackProductEvent('onboarding_activity_prompt_clicked', { source_screen: 'flow' });
+                          navigate('/financial-overview?scan=activity');
+                        }}
                         className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
                       >
                         <Icon name="Camera" size={18} />

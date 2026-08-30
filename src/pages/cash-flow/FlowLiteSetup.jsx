@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import Icon from '../../components/AppIcon';
 import BalanceScanner from '../../components/BalanceScanner';
 import { nextDueDate } from '../../lib/cardGuard';
+import { trackProductEvent } from '../../lib/analytics';
 
 // Flow Lite: the minimal Cards -> Flow onboarding bridge. It asks only three
 // things (available cash, next income amount, next income date) and shows a
@@ -70,6 +71,7 @@ const FlowLiteSetup = ({
   const applyScannedTotal = (total) => {
     onCashChange(String(Math.round((Number(total) || 0) * 100) / 100));
     if (onBalanceApplied) onBalanceApplied();
+    trackProductEvent('balance_scan_applied', { source_screen: 'flow' });
     setShowScanner(false);
   };
 
@@ -140,6 +142,15 @@ const FlowLiteSetup = ({
     String(incomeAmount ?? '') !== '' &&
     !!incomeDateObj;
 
+  // Fire flow_setup_completed once, when the minimum valid inputs first exist.
+  const setupCompleteFired = useRef(false);
+  useEffect(() => {
+    if (hasMinInputs && !setupCompleteFired.current) {
+      setupCompleteFired.current = true;
+      trackProductEvent('flow_setup_completed', { source_screen: 'flow' });
+    }
+  }, [hasMinInputs]);
+
   const inputCls =
     'w-full border border-border rounded-lg p-3 text-lg font-bold text-foreground outline-none bg-background focus:ring-2 focus:ring-blue-500';
 
@@ -177,7 +188,11 @@ const FlowLiteSetup = ({
           />
           <button
             type="button"
-            onClick={() => setShowScanner((s) => !s)}
+            onClick={() => {
+              const opening = !showScanner;
+              if (opening) trackProductEvent('balance_scan_started', { source_screen: 'flow' });
+              setShowScanner(opening);
+            }}
             className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
           >
             <Icon name="Camera" size={14} />
