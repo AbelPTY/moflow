@@ -4,6 +4,7 @@ import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from '
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import UpcomingPaymentsCalendar from '../../components/UpcomingPaymentsCalendar';
 import FlowLiteSetup from './FlowLiteSetup';
+import ExtraIncomePanel from './ExtraIncomePanel';
 import BalanceScanner from '../../components/BalanceScanner';
 import Icon from '../../components/AppIcon';
 import useScheduledPayments from '../../hooks/useScheduledPayments';
@@ -23,6 +24,17 @@ const LS_INCOME_DAY = 'cashflow_income_day';
 // V2 manual/auto value should not silently override the new baseline.
 const LS_EXPECTED_DAILY = 'cashflow_expected_daily_spend_v21';
 const LS_YAPPY_OVERRIDES = 'cashflow_recurring_yappy_overrides_v1';
+
+// V2.6: one-time dated extra income + a custom look-ahead end date.
+const LS_EXTRA_INCOME = 'cashflow_extra_income_v1';
+const LS_CUSTOM_LOOKAHEAD = 'cashflow_custom_lookahead_date_v1';
+const LS_LOOKAHEAD_MODE = 'cashflow_lookahead_mode_v1';
+
+const DEFAULT_WINDOW_DAYS = 14;
+
+// Horizon (days) beyond which we show a subtle "less certain" note, because
+// expected everyday spending is estimated from historical behavior.
+const LONG_RANGE_DAYS = 45;
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', {
@@ -50,6 +62,108 @@ const writeYappyOverrides = (value) => {
   } catch {
     // Ignore localStorage write errors and keep the current UI state.
   }
+};
+
+// --- Extra income (one-time dated inflows) persistence ---
+const readExtraIncome = () => {
+  try {
+    const raw = localStorage.getItem(LS_EXTRA_INCOME);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeExtraIncome = (value) => {
+  try {
+    localStorage.setItem(LS_EXTRA_INCOME, JSON.stringify(value || []));
+  } catch {
+    // Ignore localStorage write errors and keep the current UI state.
+  }
+};
+
+// --- Custom look-ahead end date persistence ---
+const readCustomLookahead = () => {
+  try {
+    return localStorage.getItem(LS_CUSTOM_LOOKAHEAD) || '';
+  } catch {
+    return '';
+  }
+};
+
+const writeCustomLookahead = (value) => {
+  try {
+    if (value) localStorage.setItem(LS_CUSTOM_LOOKAHEAD, value);
+    else localStorage.removeItem(LS_CUSTOM_LOOKAHEAD);
+  } catch {
+    // Ignore localStorage write errors and keep the current UI state.
+  }
+};
+
+// --- Active look-ahead mode persistence ('preset' | 'custom') ---
+const readLookaheadMode = () => {
+  try {
+    const raw = localStorage.getItem(LS_LOOKAHEAD_MODE);
+    return raw === 'custom' || raw === 'preset' ? raw : '';
+  } catch {
+    return '';
+  }
+};
+
+const writeLookaheadMode = (value) => {
+  try {
+    localStorage.setItem(LS_LOOKAHEAD_MODE, value);
+  } catch {
+    // Ignore localStorage write errors and keep the current UI state.
+  }
+};
+
+const startOfToday = () => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+};
+
+// Whole calendar days from today to a yyyy-MM-dd string. Returns null when the
+// date is invalid or strictly before today (a past horizon is never used).
+const daysFromTodayTo = (dateStr) => {
+  if (!dateStr) return null;
+  const d = parseISO(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = differenceInCalendarDays(target, startOfToday());
+  return diff < 0 ? null : diff;
+};
+
+// Resolve the initial look-ahead state from persisted values. Restores a valid
+// custom horizon; falls back safely to the 14-day preset (and flags a mode
+// reset) when a stored custom date is missing/invalid/past. `resetMode` tells
+// the component to persist 'preset' once on mount so storage self-heals.
+const initialLookahead = () => {
+  const storedDate = readCustomLookahead();
+  const mode = readLookaheadMode();
+
+  if (mode === 'custom') {
+    const diff = daysFromTodayTo(storedDate);
+    if (diff !== null) {
+      return { mode: 'custom', windowDays: diff, customDate: storedDate, resetMode: false };
+    }
+    // Stored custom date is invalid or now in the past -> safe fallback.
+    return { mode: 'preset', windowDays: DEFAULT_WINDOW_DAYS, customDate: storedDate, resetMode: true };
+  }
+
+  // Missing/invalid mode, or an explicit 'preset' -> existing default.
+  return { mode: 'preset', windowDays: DEFAULT_WINDOW_DAYS, customDate: storedDate, resetMode: false };
+};
+
+const newExtraIncomeId = () => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch {
+    // fall through to a non-crypto id
+  }
+  return `ei_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 };
 
 const median = (values) => {
@@ -224,7 +338,20 @@ const CashFlow = () => {
   // the existing setCash (cashflow_available_cash) — never auto-overwritten.
   const [showBalanceScanner, setShowBalanceScanner] = useState(false);
 
-  const [windowDays, setWindowDays] = useState(14);
+  // Look-ahead: 'preset' (7/14/30) or 'custom' (exact end date). windowDays stays
+  // the single horizon the engine uses; custom just derives it from a date. The
+  // active mode + custom date are restored from localStorage on load.
+  const initialLA = useMemo(() => initialLookahead(), []);
+  const [windowDays, setWindowDays] = useState(initialLA.windowDays);
+  const [lookaheadMode, setLookaheadMode] = useState(initialLA.mode);
+  const [customDate, setCustomDate] = useState(initialLA.customDate);
+
+  // Self-heal storage once if a stored custom date was invalid/past on load.
+  useEffect(() => {
+    if (initialLA.resetMode) writeLookaheadMode('preset');
+  }, [initialLA.resetMode]);
+  // One-time dated extra-income events (persisted to localStorage).
+  const [extraIncome, setExtraIncome] = useState(() => readExtraIncome());
   const [availableCash, setAvailableCash] = useState('');
   const [incomeAmount, setIncomeAmount] = useState('');
   const [incomeDay, setIncomeDay] = useState('');
@@ -687,6 +814,56 @@ const CashFlow = () => {
     }
   };
 
+  // --- Look-ahead controls ---
+  const selectPreset = (days) => {
+    setLookaheadMode('preset');
+    writeLookaheadMode('preset');
+    setWindowDays(days);
+  };
+
+  const selectCustomMode = () => {
+    setLookaheadMode('custom');
+    writeLookaheadMode('custom');
+    // Restore the last valid (non-past) custom date if we have one.
+    const diff = daysFromTodayTo(customDate);
+    if (diff !== null) setWindowDays(diff);
+  };
+
+  const changeCustomDate = (value) => {
+    setCustomDate(value);
+    writeCustomLookahead(value);
+    const diff = daysFromTodayTo(value);
+    // Only a valid, non-past date drives the projection horizon.
+    if (diff !== null) {
+      setLookaheadMode('custom');
+      writeLookaheadMode('custom');
+      setWindowDays(diff);
+    }
+  };
+
+  const customDateValid = daysFromTodayTo(customDate) !== null;
+  const isLongRange = windowDays > LONG_RANGE_DAYS;
+  // Custom = today is a valid 0-day window internally, but should read "Today".
+  const isCustomToday = lookaheadMode === 'custom' && windowDays === 0;
+  const horizonShort = isCustomToday ? 'today' : `${windowDays}d`;
+
+  // --- Extra-income CRUD (persisted) ---
+  const persistExtraIncome = (next) => {
+    setExtraIncome(next);
+    writeExtraIncome(next);
+  };
+
+  const addExtraIncome = (item) =>
+    persistExtraIncome([...extraIncome, { ...item, id: newExtraIncomeId() }]);
+
+  const updateExtraIncome = (id, patch) =>
+    persistExtraIncome(
+      extraIncome.map((e) => (e.id === id ? { ...e, ...patch } : e))
+    );
+
+  const deleteExtraIncome = (id) =>
+    persistExtraIncome(extraIncome.filter((e) => e.id !== id));
+
   const cash = parseFloat(availableCash) || 0;
   const incAmt = parseFloat(incomeAmount) || 0;
   const incDay = parseInt(incomeDay, 10) || 0;
@@ -809,6 +986,31 @@ const CashFlow = () => {
       }
     });
 
+    // One-time dated extra income (V2.6). A positive inflow on its own date.
+    // Included ONLY when the event falls within [start, windowEnd]: an event
+    // today (== start) counts once; strictly-past events are ignored so they
+    // never affect a future projection window, and events past windowEnd are
+    // out of horizon. It joins the same chronological stream as every other
+    // event, so date ordering (and thus the low point/shortfall) stays correct.
+    (extraIncome || []).forEach((item) => {
+      const amt = Number(item?.amount) || 0;
+      if (!(amt > 0) || !item?.date) return;
+
+      const d = parseISO(item.date);
+      if (Number.isNaN(d.getTime())) return;
+
+      const eventDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      if (eventDate < start || eventDate > windowEnd) return;
+
+      events.push({
+        date: eventDate,
+        dateStr: item.date,
+        label: (item.label && item.label.trim()) || 'Extra income',
+        amount: amt,
+        type: 'extra-income',
+      });
+    });
+
     // Only the historically cash/debit portion of everyday lifestyle spending
     // reduces current cash now.
     if (dailyCashSpend > 0) {
@@ -838,6 +1040,7 @@ const CashFlow = () => {
 
     const priority = {
       income: 0,
+      'extra-income': 0,
       bill: 1,
       card: 1,
       'recurring-yappy': 1,
@@ -877,6 +1080,10 @@ const CashFlow = () => {
 
     const totalIncome = events
       .filter((e) => e.type === 'income')
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    const totalExtraIncome = events
+      .filter((e) => e.type === 'extra-income')
       .reduce((sum, e) => sum + e.amount, 0);
 
     const totalBills = Math.abs(
@@ -920,6 +1127,7 @@ const CashFlow = () => {
       lowestDate,
       shortfall,
       totalIncome,
+      totalExtraIncome,
       totalBills,
       totalCards,
       totalRecurringYappy,
@@ -942,6 +1150,7 @@ const CashFlow = () => {
     dailyLifestyleSpend,
     scenarioSpend,
     windowDays,
+    extraIncome,
   ]);
 
   const cardCalendarEvents = useMemo(
@@ -975,7 +1184,7 @@ const CashFlow = () => {
     <div className="min-h-screen bg-background text-foreground">
       <PrimaryNavBar />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold">Cash Flow</h1>
           <p className="text-sm text-muted-foreground font-medium mt-1">
@@ -1097,23 +1306,67 @@ const CashFlow = () => {
             <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
               Look ahead
             </label>
-            <div className="flex gap-2">
-              {WINDOW_OPTIONS.map((days) => (
-                <button
-                  key={days}
-                  onClick={() => setWindowDays(days)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
-                    windowDays === days
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-muted text-muted-foreground hover:bg-muted'
-                  }`}
-                >
-                  {days} days
-                </button>
-              ))}
+            <div className="flex gap-2 flex-wrap">
+              {WINDOW_OPTIONS.map((days) => {
+                const active = lookaheadMode === 'preset' && windowDays === days;
+                return (
+                  <button
+                    key={days}
+                    onClick={() => selectPreset(days)}
+                    className={`flex-1 min-w-[64px] py-2 min-h-[40px] rounded-lg text-sm font-bold transition-colors ${
+                      active
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-muted text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {days} days
+                  </button>
+                );
+              })}
+              <button
+                onClick={selectCustomMode}
+                className={`flex-1 min-w-[64px] py-2 min-h-[40px] rounded-lg text-sm font-bold transition-colors ${
+                  lookaheadMode === 'custom'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-muted text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Custom
+              </button>
             </div>
+
+            {lookaheadMode === 'custom' && (
+              <div className="mt-2">
+                <input
+                  type="date"
+                  min={format(new Date(), 'yyyy-MM-dd')}
+                  value={customDate}
+                  onChange={(e) => changeCustomDate(e.target.value)}
+                  className="w-full max-w-full py-2 px-2 min-h-[40px] rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {customDate && !customDateValid && (
+                  <p className="text-[11px] text-red-600 mt-1">
+                    Pick a date that is today or later to use it as your forecast end.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
+
+        {isLongRange && (
+          <p className="text-[11px] text-muted-foreground -mt-2 mb-6">
+            Longer-range projections are inherently less certain: expected everyday
+            spending is estimated from your recent history, not guaranteed.
+          </p>
+        )}
+
+        <ExtraIncomePanel
+          items={extraIncome}
+          onAdd={addExtraIncome}
+          onUpdate={updateExtraIncome}
+          onDelete={deleteExtraIncome}
+        />
 
         {showBalanceScanner && (
           <div className="mb-6">
@@ -1149,7 +1402,9 @@ const CashFlow = () => {
                     {money(proj.projectedEnd)}
                   </p>
                   <p className="text-sm text-muted-foreground mt-2">
-                    Estimated cash position {windowDays} days from now.
+                    {isCustomToday
+                      ? 'Estimated cash position as of today.'
+                      : `Estimated cash position ${windowDays} days from now.`}
                   </p>
                 </div>
 
@@ -1160,6 +1415,13 @@ const CashFlow = () => {
                     value={`+${money(proj.totalIncome)}`}
                     tone="positive"
                   />
+                  {proj.totalExtraIncome > 0 && (
+                    <BreakdownItem
+                      label="Extra income"
+                      value={`+${money(proj.totalExtraIncome)}`}
+                      tone="positive"
+                    />
+                  )}
                   <BreakdownItem
                     label="Known"
                     value={`-${money(proj.totalKnownCommitments)}`}
@@ -1357,8 +1619,8 @@ const CashFlow = () => {
                                 }`}
                               >
                                 {includedInForecast
-                                  ? `Included in your ${windowDays}-day cash projection.`
-                                  : `Outside your current ${windowDays}-day forecast.`}
+                                  ? `Included in your ${isCustomToday ? "today's" : `${windowDays}-day`} cash projection.`
+                                  : `Outside your current ${isCustomToday ? "today's" : `${windowDays}-day`} forecast.`}
                               </p>
                             </div>
 
@@ -1420,7 +1682,7 @@ const CashFlow = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
               <SummaryStat
-                label={`Known commitments (${windowDays}d)`}
+                label={`Known commitments (${horizonShort})`}
                 value={money(proj.totalKnownCommitments)}
                 sub={`${money(proj.totalBills)} bills + ${money(
                   proj.totalCards
@@ -1431,7 +1693,7 @@ const CashFlow = () => {
               />
 
               <SummaryStat
-                label={`Expected lifestyle spend (${windowDays}d)`}
+                label={`Expected lifestyle spend (${horizonShort})`}
                 value={money(proj.totalExpectedLifestyleSpending)}
                 sub={`${money(
                   proj.totalExpectedCashSpending
@@ -1504,7 +1766,8 @@ const CashFlow = () => {
             ) : (
               <div className="mb-6 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                 <p className="text-sm text-emerald-800 font-medium">
-                  Projection stays above $0 through the next {windowDays} days
+                  Projection stays above $0{' '}
+                  {isCustomToday ? 'through today' : `through the next ${windowDays} days`}{' '}
                   based on the assumptions shown above. The lowest projected
                   cash balance is{' '}
                   <span className="font-bold">{money(proj.lowest)}</span>.
@@ -1524,7 +1787,9 @@ const CashFlow = () => {
 
               {proj.rows.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground text-sm italic">
-                  No projected cash-flow events in the next {windowDays} days.
+                  {isCustomToday
+                    ? 'No projected cash-flow events today.'
+                    : `No projected cash-flow events in the next ${windowDays} days.`}
                 </div>
               ) : (
                 <div className="divide-y divide-border">
@@ -1601,6 +1866,7 @@ const CashFlow = () => {
 const eventTypeLabel = (type) => {
   const labels = {
     income: 'Income',
+    'extra-income': 'Extra income',
     bill: 'Known bill',
     card: 'Card statement',
     'recurring-yappy': 'Recurring Yappy commitment',
