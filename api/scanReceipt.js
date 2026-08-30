@@ -15,10 +15,15 @@ export default async function handler(req, res) {
   if (!(await applyRateLimit({ req, res, user, scope: 'gemini_vision' }))) return;
 
   try {
-    const { image } = req.body || {};
+    const { image, mode } = req.body || {};
     if (!image) {
       return res.status(400).json({ error: 'No image provided' });
     }
+
+    // Explicit mode keeps this one function serving two vision jobs so we stay
+    // within the Vercel Hobby function limit. Absent/receipt => unchanged
+    // legacy behavior. 'activity' => recent-activity transaction-list extraction.
+    const isActivity = mode === 'activity' || mode === 'recent_activity';
 
     // Remove the data URL prefix so Gemini gets the raw base64 string
     const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
@@ -27,6 +32,42 @@ export default async function handler(req, res) {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "models/gemini-2.5-flash" });
 
+    // Recent-activity screenshot: a banking-app transaction list.
+    const activityPrompt = `
+      You are reading a SCREENSHOT of a banking-app RECENT ACTIVITY /
+      transaction list (Panamanian bank in Spanish or a US institution in
+      English). Extract each visible transaction row.
+
+      Return ONLY valid JSON, no markdown:
+      {
+        "transactions": [
+          {
+            "date": "YYYY-MM-DD",
+            "description": "<merchant / description text as shown>",
+            "amount": -42.35,
+            "type": "debit",
+            "reference": "<transaction/reference number if visible, else ''>",
+            "account_hint": "<account label if the screenshot shows one, else ''>"
+          }
+        ]
+      }
+
+      Rules:
+      - Expenses/debits are NEGATIVE numbers; income/credits are POSITIVE.
+      - "type" is "debit" for money out, "credit" for money in.
+      - Extract ONLY rows that are actually visible transactions. Do NOT invent
+        dates or amounts.
+      - IGNORE running/available balances, column headers, section titles,
+        date-group headers, and subtotals -- these are NOT transactions.
+      - Preserve useful merchant/description text; strip currency symbols and
+        thousands separators from amounts.
+      - If a row shows a date without a year, infer the most likely recent year;
+        if truly unknown, use the current year.
+      - reference/account_hint are empty strings when not clearly visible.
+      - If nothing is clearly a transaction, return {"transactions": []}.
+      - Return JSON only. No explanation.
+    `;
+
     // The AI Prompt: handles BOTH a simple single-item receipt (restaurant,
     // grocery store, etc.) AND a multi-line-item payment voucher (like a
     // Cooperativa Profesionales "Papeleta Única de Transacciones", which can
@@ -34,7 +75,7 @@ export default async function handler(req, res) {
     // etc. -- in one image). Always returns a JSON ARRAY, with one item per
     // real line item, so a multi-payment voucher isn't collapsed into a
     // single lump sum and loses the detail that makes it worth capturing.
-    const prompt = `
+    const receiptPrompt = `
       You are an expert Panamanian accountant analyzing a photo that could be
       EITHER a simple single-item retail receipt, OR a multi-line-item
       payment voucher (like a "Papeleta Única de Transacciones" from a
@@ -77,6 +118,8 @@ export default async function handler(req, res) {
       - If the SAME transaction type (e.g. "SEG.AUTO") appears more than once with DIFFERENT account numbers, keep them as separate line items -- do not merge them, since they're genuinely different policies/accounts.
     `;
 
+    const prompt = isActivity ? activityPrompt : receiptPrompt;
+
     const imagePart = {
       inlineData: {
         data: base64Data,
@@ -92,8 +135,34 @@ export default async function handler(req, res) {
     responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
     let parsedData = JSON.parse(responseText);
 
-    // Always return an array, even if the model returned a single object
-    // (backward-compatible with the old single-object response shape)
+    // Activity mode returns a normalized { transactions: [...] } envelope with
+    // signed amounts, defensively shaped so the client never trusts raw model output.
+    if (isActivity) {
+      const rawTx = Array.isArray(parsedData?.transactions)
+        ? parsedData.transactions
+        : Array.isArray(parsedData)
+          ? parsedData
+          : [];
+
+      const transactions = rawTx
+        .map((t) => {
+          const amount = Number(t?.amount) || 0;
+          return {
+            date: String(t?.date || '').trim(),
+            description: String(t?.description || t?.merchant || '').trim(),
+            amount,
+            type: t?.type === 'credit' || amount > 0 ? 'credit' : 'debit',
+            reference: String(t?.reference || '').trim(),
+            account_hint: String(t?.account_hint || '').trim(),
+          };
+        })
+        .filter((t) => t.description || t.amount);
+
+      return res.status(200).json({ transactions });
+    }
+
+    // Receipt mode (default): always return an array, even if the model
+    // returned a single object (backward-compatible with the old shape).
     if (!Array.isArray(parsedData)) {
       parsedData = [parsedData];
     }

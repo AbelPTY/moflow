@@ -9,6 +9,7 @@ import useTransactions from '../../hooks/useTransactions';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import RecentActivityScanner from '../../components/RecentActivityScanner';
 
 import { supabase } from '../../lib/supabase'; // <-- Important: Verify this path matches your setup!
 import rulesData from '../../rules/merchant_rules.json';
@@ -186,8 +187,11 @@ const FinancialOverview = () => {
   const filters = useMemo(() => ({ dateRange: 'all' }), []);
   const transactionOptions = useMemo(() => ({ filters }), [filters]);
 
-  const { transactions, loading, updateTransaction, deleteTransaction } = useTransactions(null, transactionOptions);
+  const { transactions, loading, refetch, updateTransaction, deleteTransaction } = useTransactions(null, transactionOptions);
   const { userRules } = useUserMerchantRules(); // active user rules (empty today)
+
+  // Recent-activity screenshot import lives here (Activity is its home).
+  const [showActivityScanner, setShowActivityScanner] = useState(false);
 
   const uniqueAccounts = useMemo(() => transactions ? [...new Set(transactions.map(t => t.account).filter(Boolean))].sort() : [], [transactions]);
   const uniqueCategories = useMemo(() => transactions ? [...new Set(transactions.map(t => t.category).filter(Boolean))].sort() : [], [transactions]);
@@ -506,7 +510,10 @@ const handleDeleteTransaction = async (t) => {
               {loading && <span className="text-xs text-primary animate-pulse ml-2 font-bold">Syncing...</span>}
             </div>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
+             <Button variant="default" className="bg-blue-600 hover:bg-blue-700 text-white h-10" iconName="ScanLine" iconPosition="left" onClick={() => setShowActivityScanner((s) => !s)}>
+               Scan recent activity
+             </Button>
              <AccountFilterDropdown accounts={uniqueAccounts} selected={selectedAccounts} onChange={setSelectedAccounts}/>
              <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="bg-card border border-input rounded-lg p-2 text-sm font-medium shadow-sm h-10">
                <option value="all">All Time</option>
@@ -514,6 +521,16 @@ const handleDeleteTransaction = async (t) => {
              </select>
           </div>
         </div>
+
+        {showActivityScanner && (
+          <div className="mb-8">
+            <RecentActivityScanner
+              accounts={uniqueAccounts}
+              onImported={() => { if (refetch) refetch(); }}
+              onClose={() => setShowActivityScanner(false)}
+            />
+          </div>
+        )}
 
         {/* KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
