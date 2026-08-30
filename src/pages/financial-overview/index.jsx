@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
@@ -15,6 +16,7 @@ import { supabase } from '../../lib/supabase'; // <-- Important: Verify this pat
 import rulesData from '../../rules/merchant_rules.json';
 import { classifyTransaction } from '../../lib/engine/ruleMatcher';
 import useUserMerchantRules from '../../hooks/useUserMerchantRules';
+import useOnboarding from '../../hooks/useOnboarding';
 
 const COLORS = {
   'NEEDS': '#10B981',   // Emerald
@@ -192,6 +194,21 @@ const FinancialOverview = () => {
 
   // Recent-activity screenshot import lives here (Activity is its home).
   const [showActivityScanner, setShowActivityScanner] = useState(false);
+  const { updateOnboarding } = useOnboarding();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link from the Flow next-step prompt: /financial-overview?scan=activity
+  // reveals the scanner (but never auto-triggers the file picker). Strip the
+  // param afterward so a refresh doesn't keep reopening it.
+  useEffect(() => {
+    if (searchParams.get('scan') === 'activity') {
+      setShowActivityScanner(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete('scan');
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const uniqueAccounts = useMemo(() => transactions ? [...new Set(transactions.map(t => t.account).filter(Boolean))].sort() : [], [transactions]);
   const uniqueCategories = useMemo(() => transactions ? [...new Set(transactions.map(t => t.category).filter(Boolean))].sort() : [], [transactions]);
@@ -526,7 +543,10 @@ const handleDeleteTransaction = async (t) => {
           <div className="mb-8">
             <RecentActivityScanner
               accounts={uniqueAccounts}
-              onImported={() => { if (refetch) refetch(); }}
+              onImported={() => {
+                updateOnboarding({ activityImportCompleted: true });
+                if (refetch) refetch();
+              }}
               onClose={() => setShowActivityScanner(false)}
             />
           </div>

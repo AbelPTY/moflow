@@ -5,6 +5,7 @@ import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import CreditCardsPanel from '../../components/CreditCardsPanel';
 import Icon from '../../components/AppIcon';
 import useCreditCards from '../../hooks/useCreditCards';
+import useOnboarding from '../../hooks/useOnboarding';
 import {
   nextDueDate,
   daysUntil,
@@ -21,6 +22,7 @@ const Cards = () => {
   const { cards, loading, saveCard, deleteCard, setPaid, feeSavingsTotals } = useCreditCards();
 
   const navigate = useNavigate();
+  const { onboarding, updateOnboarding } = useOnboarding();
 
   // Ref to trigger the panel's EXISTING statement scanner from the hero CTA,
   // rather than duplicating the scan pipeline.
@@ -29,8 +31,25 @@ const Cards = () => {
 
   // Post-save bridge to Flow: shown after a card is saved so the user can take
   // the next value step ("Can you comfortably cover this?"). The user chooses
-  // the CTA; navigation is never automatic.
+  // the CTA; navigation is never automatic. Once the user acts on it (either
+  // "Check my Flow" or "Not now"), it is permanently dismissed, so returning
+  // users saving more cards don't keep getting nudged.
   const [showFlowBridge, setShowFlowBridge] = useState(false);
+
+  const handleCardSaved = () => {
+    if (!onboarding.flowBridgeDismissed) setShowFlowBridge(true);
+  };
+
+  const goToFlow = () => {
+    updateOnboarding({ flowBridgeDismissed: true });
+    setShowFlowBridge(false);
+    navigate('/cash-flow?setup=1');
+  };
+
+  const dismissBridge = () => {
+    updateOnboarding({ flowBridgeDismissed: true });
+    setShowFlowBridge(false);
+  };
 
   const hasCards = !loading && cards.length > 0;
 
@@ -54,34 +73,45 @@ const Cards = () => {
       {/* Extra bottom padding so the mobile BottomNav never covers content. */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
 
-        {/* POST-SAVE BRIDGE TO FLOW */}
+        {/* POST-SAVE BRIDGE TO FLOW (also the card-save success confirmation) */}
         {showFlowBridge && (
-          <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/70 dark:bg-blue-950/20 shadow-sm p-5 relative">
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50/70 dark:bg-emerald-950/20 shadow-sm p-5 relative">
             <button
-              onClick={() => setShowFlowBridge(false)}
+              onClick={dismissBridge}
               aria-label="Dismiss"
               className="absolute top-3 right-3 p-1 text-muted-foreground hover:text-foreground"
             >
               <Icon name="X" size={18} />
             </button>
             <div className="flex items-start gap-3 pr-6">
-              <div className="bg-blue-600/10 p-2.5 rounded-xl shrink-0">
-                <Icon name="Waves" size={22} className="text-blue-600" />
+              <div className="bg-emerald-600/10 p-2.5 rounded-xl shrink-0">
+                <Icon name="CheckCircle2" size={22} className="text-emerald-600" />
               </div>
               <div className="min-w-0">
-                <p className="font-extrabold text-foreground">
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                  Card saved
+                </p>
+                <p className="font-extrabold text-foreground mt-0.5">
                   Can you comfortably cover this statement?
                 </p>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Tell MoFlow what cash you have available and when money comes in next.
+                  Check your available cash and upcoming income in Flow.
                 </p>
-                <button
-                  onClick={() => navigate('/cash-flow?setup=1')}
-                  className="mt-4 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
-                >
-                  <Icon name="ArrowRight" size={18} />
-                  Check my Flow
-                </button>
+                <div className="mt-4 flex flex-col-reverse sm:flex-row gap-2">
+                  <button
+                    onClick={dismissBridge}
+                    className="px-5 py-3 min-h-[48px] rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+                  >
+                    Not now
+                  </button>
+                  <button
+                    onClick={goToFlow}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                  >
+                    <Icon name="ArrowRight" size={18} />
+                    Check my Flow
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -117,7 +147,7 @@ const Cards = () => {
           </div>
         )}
 
-        <CreditCardsPanel ref={panelRef} cards={cards} loading={loading} onSave={saveCard} onDelete={deleteCard} onSetPaid={setPaid} onSaved={() => setShowFlowBridge(true)} />
+        <CreditCardsPanel ref={panelRef} cards={cards} loading={loading} onSave={saveCard} onDelete={deleteCard} onSetPaid={setPaid} onSaved={handleCardSaved} />
 
         {hasCards && (
           <p className="text-[11px] text-muted-foreground mt-3">

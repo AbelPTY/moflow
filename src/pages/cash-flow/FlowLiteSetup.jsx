@@ -59,6 +59,7 @@ const FlowLiteSetup = ({
   incomeAmount,
   onCashChange,
   onIncomeAmountChange,
+  onBalanceApplied,
   onSeeFullFlow,
 }) => {
   const [nextIncomeDate, setNextIncomeDate] = useState(readInitialDate);
@@ -68,6 +69,7 @@ const FlowLiteSetup = ({
   // existing available-cash setter. Available cash is never auto-overwritten.
   const applyScannedTotal = (total) => {
     onCashChange(String(Math.round((Number(total) || 0) * 100) / 100));
+    if (onBalanceApplied) onBalanceApplied();
     setShowScanner(false);
   };
 

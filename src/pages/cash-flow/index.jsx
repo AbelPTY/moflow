@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { addDays, addMonths, differenceInCalendarDays, format, parseISO } from 'date-fns';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import UpcomingPaymentsCalendar from '../../components/UpcomingPaymentsCalendar';
@@ -7,6 +7,7 @@ import FlowLiteSetup from './FlowLiteSetup';
 import ExtraIncomePanel from './ExtraIncomePanel';
 import BalanceScanner from '../../components/BalanceScanner';
 import Icon from '../../components/AppIcon';
+import useOnboarding from '../../hooks/useOnboarding';
 import useScheduledPayments from '../../hooks/useScheduledPayments';
 import useTransactions from '../../hooks/useTransactions';
 import useCreditCards from '../../hooks/useCreditCards';
@@ -333,10 +334,14 @@ const CashFlow = () => {
   const setupMode = searchParams.get('setup') === '1';
   const [flowLiteDismissed, setFlowLiteDismissed] = useState(false);
 
+  const navigate = useNavigate();
+  const { onboarding, updateOnboarding } = useOnboarding();
+
   // Balance-screenshot scanner for the full Flow available-cash control. The
   // scanned total is applied only when the user explicitly confirms; it reuses
   // the existing setCash (cashflow_available_cash) — never auto-overwritten.
   const [showBalanceScanner, setShowBalanceScanner] = useState(false);
+  const [balanceApplied, setBalanceApplied] = useState(false);
 
   // Look-ahead: 'preset' (7/14/30) or 'custom' (exact end date). windowDays stays
   // the single horizon the engine uses; custom just derives it from a date. The
@@ -1180,6 +1185,18 @@ const CashFlow = () => {
   const loading = payLoading || txLoading || cardsLoading;
   const hasSpendEstimate = dailyLifestyleSpend > 0;
 
+  // Flow -> Activity next-step prompt. "Meaningful setup" = available cash is
+  // set AND there is some income or known-commitment context. Shown once, only
+  // until the user dismisses it or completes an activity import.
+  const flowHasMeaningfulSetup =
+    String(availableCash ?? '') !== '' &&
+    (String(incomeAmount ?? '') !== '' || proj.totalKnownCommitments > 0);
+  const showActivityPrompt =
+    !loading &&
+    flowHasMeaningfulSetup &&
+    !onboarding.activityImportCompleted &&
+    !onboarding.activityPromptDismissed;
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <PrimaryNavBar />
@@ -1202,6 +1219,7 @@ const CashFlow = () => {
             incomeAmount={incomeAmount}
             onCashChange={setCash}
             onIncomeAmountChange={setIncAmt}
+            onBalanceApplied={() => updateOnboarding({ balanceScanCompleted: true })}
             onSeeFullFlow={() => setFlowLiteDismissed(true)}
           />
         )}
@@ -1228,12 +1246,20 @@ const CashFlow = () => {
             </p>
             <button
               type="button"
-              onClick={() => setShowBalanceScanner((s) => !s)}
+              onClick={() => {
+                setBalanceApplied(false);
+                setShowBalanceScanner((s) => !s);
+              }}
               className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
             >
               <Icon name="Camera" size={14} />
               Scan balances
             </button>
+            {balanceApplied && (
+              <p className="text-[11px] font-semibold text-emerald-600 mt-1">
+                Available cash updated.
+              </p>
+            )}
           </div>
 
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
@@ -1373,6 +1399,8 @@ const CashFlow = () => {
             <BalanceScanner
               onApply={(total) => {
                 setCash(String(Math.round((Number(total) || 0) * 100) / 100));
+                updateOnboarding({ balanceScanCompleted: true });
+                setBalanceApplied(true);
                 setShowBalanceScanner(false);
               }}
               onClose={() => setShowBalanceScanner(false)}
@@ -1444,6 +1472,41 @@ const CashFlow = () => {
                 </div>
               )}
             </div>
+
+            {/* FLOW -> ACTIVITY NEXT STEP (contextual, dismissible) */}
+            {showActivityPrompt && (
+              <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 shadow-sm p-5">
+                <div className="flex items-start gap-3">
+                  <div className="bg-blue-600/10 p-2.5 rounded-xl shrink-0">
+                    <Icon name="ScanLine" size={22} className="text-blue-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-extrabold text-foreground">
+                      Want a more realistic projection?
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      Scan recent activity so MoFlow can learn from your actual spending
+                      and recurring payments.
+                    </p>
+                    <div className="mt-4 flex flex-col-reverse sm:flex-row gap-2">
+                      <button
+                        onClick={() => updateOnboarding({ activityPromptDismissed: true })}
+                        className="px-5 py-3 min-h-[48px] rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+                      >
+                        Not now
+                      </button>
+                      <button
+                        onClick={() => navigate('/financial-overview?scan=activity')}
+                        className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                      >
+                        <Icon name="Camera" size={18} />
+                        Scan recent activity
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
