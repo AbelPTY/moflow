@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import Icon from './AppIcon';
 import useLoans from '../hooks/useLoans';
 import useScheduledPayments from '../hooks/useScheduledPayments';
 import { analyzeLoan, describeMonths } from '../lib/loanMath';
 import { trackProductEvent } from '../lib/analytics';
+import { authHeader } from '../lib/apiClient';
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -44,8 +45,89 @@ export default function LoansPanel() {
   const [form, setForm] = useState(null); // null = closed; object = add/edit
   const [busy, setBusy] = useState(false);
   const [simulatorId, setSimulatorId] = useState(null);
+  const [scanned, setScanned] = useState(false); // true when the form was prefilled by a scan
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const fileInputRef = useRef(null);
 
-  const openAdd = () => setForm({ ...BLANK });
+  const openAdd = () => { setScanned(false); setScanError(''); setForm({ ...BLANK }); };
+
+  const triggerScan = () => { setScanError(''); fileInputRef.current?.click(); };
+
+  // Scan a loan statement, prefill the EXISTING form, and let the user review /
+  // edit before saving. Never auto-saves. Reuses /api/scanCardStatement in
+  // mode:'loan' (no new API function), and the same client-side compression as
+  // the other scanners.
+  const handleScanLoan = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setScanning(true);
+    setScanError('');
+
+    const reader = new FileReader();
+    reader.onerror = () => { setScanning(false); setScanError('Could not read that file.'); };
+
+    reader.onloadend = () => {
+      const img = new Image();
+      img.onerror = () => { setScanning(false); setScanError('Could not load that image.'); };
+
+      img.onload = async () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          const scale = Math.min(1, MAX_WIDTH / img.width);
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          const base64Image = canvas.toDataURL('image/jpeg', 0.7);
+
+          const resp = await fetch('/api/scanCardStatement', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+            body: JSON.stringify({ image: base64Image, mode: 'loan' }),
+          });
+          if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
+
+          const d = await resp.json();
+
+          const principal = Number(d.remaining_principal) || 0;
+          const payment = Number(d.monthly_payment) || 0;
+          const hasUseful =
+            principal > 0 || payment > 0 || d.apr !== null && d.apr !== undefined || !!d.loan_name_hint;
+
+          if (!hasUseful) {
+            setScanError("We couldn't confidently read the loan details. You can try another image or enter them manually.");
+            return;
+          }
+
+          // Prefill ONLY detected values; leave undetected fields blank (never
+          // fake 0s presented as detected).
+          setForm({
+            ...BLANK,
+            loan_name: d.loan_name_hint || '',
+            loan_type: d.loan_type || BLANK.loan_type,
+            remaining_principal: principal > 0 ? String(principal) : '',
+            apr: d.apr !== null && d.apr !== undefined ? String(d.apr) : '',
+            monthly_payment: payment > 0 ? String(payment) : '',
+            next_payment_date: d.next_payment_date || '',
+            remaining_months: d.remaining_months ? String(d.remaining_months) : '',
+            maturity_date: d.maturity_date || '',
+          });
+          setScanned(true);
+        } catch (err) {
+          setScanError('Could not read the loan statement — try another image or enter it manually. ' + (err?.message || ''));
+        } finally {
+          setScanning(false);
+        }
+      };
+
+      img.src = reader.result;
+    };
+
+    reader.readAsDataURL(file);
+  };
   const openEdit = (loan) =>
     setForm({
       id: loan.id,
@@ -99,18 +181,49 @@ export default function LoansPanel() {
 
   return (
     <div className="bg-card rounded-xl border border-border shadow-sm mb-8 overflow-hidden">
-      <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+      {/* Always-mounted file input so the scanner can be triggered from the
+          empty-state hero or the header, on mobile (camera/gallery) or desktop. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleScanLoan}
+        disabled={scanning}
+        className="hidden"
+      />
+
+      <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
         <div className="font-bold text-foreground">Loans</div>
         {!form && loans.length > 0 && (
-          <button onClick={openAdd} className="text-sm font-semibold text-blue-600 hover:text-blue-700">
-            + Add loan
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={triggerScan} disabled={scanning} className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50">
+              <Icon name="Camera" size={14} />
+              {scanning ? 'Reading…' : 'Scan another loan'}
+            </button>
+            <button onClick={openAdd} className="text-sm font-semibold text-blue-600 hover:text-blue-700">
+              + Add loan
+            </button>
+          </div>
         )}
       </div>
+
+      {!form && scanError && (
+        <div className="px-5 py-2 text-xs text-red-600 border-b border-border">{scanError}</div>
+      )}
 
       {/* FORM */}
       {form && (
         <div className="p-5 bg-blue-50/40 dark:bg-blue-950/10 border-b border-border">
+          {scanned && (
+            <div className="mb-4 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2">
+              <Icon name="CheckCircle2" size={16} className="text-emerald-600 mt-0.5 shrink-0" />
+              <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                <span className="font-bold">Loan statement detected.</span> Review and edit
+                the details below before saving — nothing is saved until you confirm. This
+                reads the image only; it is not verified by your lender.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-muted-foreground mb-1">Loan name</label>
@@ -168,18 +281,27 @@ export default function LoansPanel() {
             </div>
             <div className="min-w-0">
               <h2 className="text-xl sm:text-2xl font-extrabold leading-tight">
-                See how much sooner you could be debt-free.
+                Scan your loan statement
               </h2>
               <p className="text-sm text-muted-foreground mt-2">
-                Track a loan and test how extra principal payments could change your payoff
-                date and interest.
+                MoFlow can extract the balance, interest rate, payment, and payoff details
+                for you to review. Then see how much sooner extra payments could make you
+                debt-free.
               </p>
             </div>
           </div>
-          <button onClick={openAdd} className="mt-6 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-blue-600 text-white text-base font-bold hover:bg-blue-700 transition-colors">
-            <Icon name="Plus" size={20} />
-            Add loan
-          </button>
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <button onClick={triggerScan} disabled={scanning} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-blue-600 text-white text-base font-bold hover:bg-blue-700 transition-colors disabled:opacity-50">
+              <Icon name="Camera" size={20} />
+              {scanning ? 'Reading statement…' : 'Scan loan statement'}
+            </button>
+            <button onClick={openAdd} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl border border-border text-foreground text-base font-semibold hover:bg-muted transition-colors">
+              <Icon name="Plus" size={20} />
+              Add loan manually
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">Review everything before it is saved.</p>
+          {scanError && <p className="text-xs text-red-600 mt-2">{scanError}</p>}
         </div>
       ) : (
         <div className="divide-y divide-border">
