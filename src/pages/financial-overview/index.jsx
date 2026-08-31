@@ -520,7 +520,7 @@ const handleDeleteTransaction = async (t) => {
         {/* HEADER */}
         <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Financial Overview</h1>
+            <h1 className="text-3xl font-bold text-foreground">Activity</h1>
             <div className="flex items-center gap-2 mt-1">
               <p className="text-sm text-muted-foreground font-medium">
                 {timeRange === 'all' ? 'All Time History' : `${timeRange} Fiscal Year`}
@@ -529,7 +529,7 @@ const handleDeleteTransaction = async (t) => {
             </div>
           </div>
           <div className="flex gap-2 items-center flex-wrap">
-             <Button variant="default" className="bg-blue-600 hover:bg-blue-700 text-white h-10" iconName="ScanLine" iconPosition="left" onClick={() => setShowActivityScanner((s) => !s)}>
+             <Button variant="default" className="bg-primary hover:bg-primary/90 text-white h-10" iconName="ScanLine" iconPosition="left" onClick={() => setShowActivityScanner((s) => !s)}>
                Scan recent activity
              </Button>
              <AccountFilterDropdown accounts={uniqueAccounts} selected={selectedAccounts} onChange={setSelectedAccounts}/>

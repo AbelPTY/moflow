@@ -94,7 +94,7 @@ const ActionPlan = () => {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <PrimaryNavBar />
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
         <div className="mb-6">
           <h1 className="text-3xl font-bold">Action Plan</h1>
           <p className="text-sm text-muted-foreground font-medium mt-1">
@@ -107,7 +107,7 @@ const ActionPlan = () => {
           <div className="flex items-start gap-3">
             <button
               onClick={recording ? stopRecording : startRecording}
-              className={`shrink-0 w-14 h-14 rounded-full flex items-center justify-center text-white transition-all ${recording ? 'bg-red-500 animate-pulse' : 'bg-blue-600 hover:bg-blue-700'}`}
+              className={`shrink-0 w-14 h-14 rounded-full flex items-center justify-center text-white transition-all ${recording ? 'bg-red-500 animate-pulse' : 'bg-primary hover:bg-primary/90'}`}
               title={recording ? 'Stop' : 'Start talking'}
             >
               <Icon name={recording ? 'Square' : 'Mic'} size={22} />

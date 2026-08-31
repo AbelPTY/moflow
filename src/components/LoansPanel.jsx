@@ -263,7 +263,7 @@ export default function LoansPanel() {
 
           <div className="flex justify-end gap-2 mt-4">
             <button onClick={() => setForm(null)} className="px-4 py-3 min-h-[44px] text-muted-foreground hover:bg-muted rounded-md text-sm font-medium">Cancel</button>
-            <button onClick={save} disabled={busy} className="px-4 py-3 min-h-[44px] bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+            <button onClick={save} disabled={busy} className="px-4 py-3 min-h-[44px] bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:bg-primary/90 disabled:opacity-50">
               {busy ? 'Saving…' : 'Save loan'}
             </button>
           </div>
@@ -291,7 +291,7 @@ export default function LoansPanel() {
             </div>
           </div>
           <div className="mt-6 flex flex-col sm:flex-row gap-3">
-            <button onClick={triggerScan} disabled={scanning} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-blue-600 text-white text-base font-bold hover:bg-blue-700 transition-colors disabled:opacity-50">
+            <button onClick={triggerScan} disabled={scanning} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-primary text-primary-foreground text-base font-bold hover:bg-primary/90 transition-colors disabled:opacity-50">
               <Icon name="Camera" size={20} />
               {scanning ? 'Reading statement…' : 'Scan loan statement'}
             </button>
@@ -397,14 +397,14 @@ function LoanRow({ loan, payments, addPayment, onEdit, onDelete, simulatorOpen, 
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <button onClick={onEdit} className="text-xs font-semibold text-blue-600 hover:text-blue-700">Edit</button>
-          <button onClick={onDelete} className="text-xs font-semibold text-red-500 hover:text-red-600">Remove</button>
+          <button onClick={onDelete} className="text-xs font-semibold text-destructive hover:text-destructive/80">Remove</button>
         </div>
       </div>
 
       <div className="mt-3 flex flex-col sm:flex-row gap-2">
         <button
           onClick={onToggleSimulator}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90"
         >
           <Icon name="Calculator" size={16} />
           {simulatorOpen ? 'Hide simulator' : 'Analyze extra payments'}
@@ -488,97 +488,115 @@ function LoanSimulator({ loan, baseline, addPayment }) {
   const scenPayoff = result?.scenario?.amortizes ? fmtMonth(result.scenarioPayoffDate) : null;
   const paidNow = result?.scenario?.paidOffImmediately;
 
+  const baselineInterest = baseline.baseline.amortizes ? money(baseline.baseline.totalInterest) : '—';
+  const baselinePayoffText = baseline.baseline.amortizes
+    ? (basePayoff || `in ${describeMonths(baseline.baseline.months)}`)
+    : '—';
+
   return (
-    <div className="mt-4 rounded-xl border border-border bg-background/40 p-4">
-      {/* BASELINE FIRST */}
-      <div className="grid grid-cols-2 gap-y-1 text-sm mb-4">
-        <span className="text-muted-foreground">Estimated payoff (baseline)</span>
-        <span className="text-right font-bold text-foreground">
-          {baseline.baseline.amortizes ? (basePayoff || `in ${describeMonths(baseline.baseline.months)}`) : '—'}
-        </span>
-        <span className="text-muted-foreground">Estimated remaining interest</span>
-        <span className="text-right font-bold text-foreground">
-          {baseline.baseline.amortizes ? money(baseline.baseline.totalInterest) : '—'}
-        </span>
+    <div className="mt-4 space-y-3">
+      {/* INPUT AREA */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
+          Test extra payments
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">One-time extra principal ($)</label>
+            <input type="number" inputMode="decimal" min="0" step="0.01" value={oneTime} onChange={(e) => setOneTime(e.target.value)} placeholder="0.00" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Recurring extra each month ($)</label>
+            <input type="number" inputMode="decimal" min="0" step="0.01" value={recurring} onChange={(e) => setRecurring(e.target.value)} placeholder="0.00" className={inputCls} />
+          </div>
+        </div>
+        <button onClick={calculate} className="mt-3 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90">
+          <Icon name="Sparkles" size={16} />
+          Calculate impact
+        </button>
       </div>
 
-      {/* SCENARIO INPUTS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">One-time extra principal ($)</label>
-          <input type="number" inputMode="decimal" min="0" step="0.01" value={oneTime} onChange={(e) => setOneTime(e.target.value)} placeholder="0.00" className={inputCls} />
+      {/* RESULT AREA */}
+      {!active || !result ? (
+        <div className="rounded-xl border border-border bg-background/40 p-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Estimated payoff (baseline)</span>
+            <span className="font-bold text-foreground">{baselinePayoffText}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm mt-1">
+            <span className="text-muted-foreground">Estimated remaining interest</span>
+            <span className="font-bold text-foreground">{baselineInterest}</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Enter an extra payment above and tap Calculate impact to see the difference.
+          </p>
         </div>
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Recurring extra each month ($)</label>
-          <input type="number" inputMode="decimal" min="0" step="0.01" value={recurring} onChange={(e) => setRecurring(e.target.value)} placeholder="0.00" className={inputCls} />
+      ) : paidNow ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 p-5 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Estimated new payoff</p>
+          <p className="text-2xl sm:text-3xl font-extrabold text-emerald-800 dark:text-emerald-300 mt-1">Paid off right away</p>
+          <p className="text-sm text-emerald-800 dark:text-emerald-300 mt-1">
+            That one-time payment clears the balance — the loan is estimated paid off immediately.
+          </p>
         </div>
-      </div>
+      ) : result.scenario?.amortizes ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 p-5 shadow-sm">
+          {/* 1. New estimated payoff (primary) */}
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Estimated new payoff</p>
+          <p className="text-3xl font-extrabold text-emerald-800 dark:text-emerald-300 mt-1 leading-tight">
+            {scenPayoff || `in ${describeMonths(result.scenario.months)}`}
+          </p>
 
-      <button onClick={calculate} className="mt-3 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700">
-        <Icon name="Sparkles" size={16} />
-        Calculate impact
-      </button>
+          {/* 2. Time saved */}
+          {result.monthsSaved > 0 && (
+            <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400 mt-1">
+              {describeMonths(result.monthsSaved)} sooner
+            </p>
+          )}
 
-      {/* RESULTS */}
+          {/* 3. Interest saved */}
+          {result.interestSaved !== null && result.interestSaved > 0 && (
+            <p className="text-sm text-foreground mt-2">
+              Estimated interest saved <span className="font-extrabold text-emerald-700 dark:text-emerald-400">{money(result.interestSaved)}</span>
+            </p>
+          )}
+
+          {/* 4. Baseline comparison (secondary) */}
+          {basePayoff && scenPayoff && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Baseline payoff {basePayoff} → {scenPayoff}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm text-amber-800 dark:text-amber-300">
+          {result.scenario?.warning || 'This scenario does not pay off within the modeled horizon.'}
+        </div>
+      )}
+
+      {/* ADD ONE-TIME EXTRA TO FLOW (explicit only) */}
+      {active && result && (Number(oneTime) || 0) > 0 && (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+            Add this one-time extra payment to Flow
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <input type="date" value={extraDate} onChange={(e) => setExtraDate(e.target.value)} className="border border-border rounded-md p-2.5 text-sm bg-background text-foreground min-h-[44px]" />
+            <button onClick={addExtraToFlow} disabled={extraBusy} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50">
+              <Icon name="CalendarPlus" size={16} />
+              Add this payment to Flow
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            This adds a one-time commitment to Flow. It does not change your regular loan payment.
+          </p>
+          {extraNote && <p className="text-xs text-muted-foreground mt-1">{extraNote}</p>}
+        </div>
+      )}
+
+      {/* DISCLOSURE (secondary) */}
       {active && result && (
-        <div className="mt-4">
-          {paidNow ? (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 p-4">
-              <p className="text-lg font-extrabold text-emerald-800 dark:text-emerald-300">
-                That one-time payment clears the balance — the loan is estimated paid off right away.
-              </p>
-            </div>
-          ) : result.scenario?.amortizes ? (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 p-4">
-              {basePayoff && scenPayoff && (
-                <p className="text-lg sm:text-xl font-extrabold text-foreground">
-                  Estimated payoff: {basePayoff} <span className="text-emerald-600">→ {scenPayoff}</span>
-                </p>
-              )}
-              {result.monthsSaved > 0 && (
-                <p className="text-base font-bold text-emerald-700 dark:text-emerald-400 mt-1">
-                  {describeMonths(result.monthsSaved)} sooner
-                </p>
-              )}
-              {result.interestSaved !== null && (
-                <p className="text-sm text-foreground mt-1">
-                  Estimated interest saved: <span className="font-bold">{money(result.interestSaved)}</span>
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground mt-2">
-                If you pay this extra toward principal, your estimated payoff could move up by{' '}
-                <span className="font-semibold">{describeMonths(result.monthsSaved || 0)}</span>.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              {result.scenario?.warning || 'This scenario does not pay off within the modeled horizon.'}
-            </div>
-          )}
-
-          {/* ADD ONE-TIME EXTRA TO FLOW (explicit only) */}
-          {(Number(oneTime) || 0) > 0 && (
-            <div className="mt-4 border-t border-border pt-3">
-              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-                Add this one-time extra payment to Flow
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                <input type="date" value={extraDate} onChange={(e) => setExtraDate(e.target.value)} className="border border-border rounded-md p-2.5 text-sm bg-background text-foreground min-h-[44px]" />
-                <button onClick={addExtraToFlow} disabled={extraBusy} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-50">
-                  <Icon name="CalendarPlus" size={16} />
-                  Add this payment to Flow
-                </button>
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                This adds a one-time commitment to Flow. It does not change your regular loan payment.
-              </p>
-              {extraNote && <p className="text-[11px] text-muted-foreground mt-1">{extraNote}</p>}
-            </div>
-          )}
-
-          {/* DISCLOSURE */}
-          <p className="text-[11px] text-muted-foreground mt-3">{DISCLOSURE}</p>
-        </div>
+        <p className="text-xs text-muted-foreground">{DISCLOSURE}</p>
       )}
     </div>
   );

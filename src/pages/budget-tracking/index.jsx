@@ -236,7 +236,7 @@ const Budget = () => {
     <div className="min-h-screen bg-background">
       <PrimaryNavBar />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
 
         {/* HEADER */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-8 gap-4 bg-card p-4 rounded-xl shadow-elevation-1 border border-border">

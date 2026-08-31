@@ -118,7 +118,7 @@ const Cards = () => {
                   </button>
                   <button
                     onClick={goToFlow}
-                    className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                    className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
                   >
                     <Icon name="ArrowRight" size={18} />
                     Check my Flow
@@ -219,7 +219,7 @@ const EmptyStateHero = ({ onScan }) => (
 
     <button
       onClick={onScan}
-      className="mt-6 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-blue-600 text-white text-base font-bold hover:bg-blue-700 transition-colors"
+      className="mt-6 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-primary text-primary-foreground text-base font-bold hover:bg-primary/90 transition-colors"
     >
       <Icon name="Camera" size={20} />
       Scan statement
@@ -291,7 +291,7 @@ const ExistingUserHero = ({ nextObligation, onScan }) => {
 
         <button
           onClick={onScan}
-          className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+          className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
         >
           <Icon name="Camera" size={18} />
           Scan statement

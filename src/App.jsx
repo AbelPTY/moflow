@@ -17,7 +17,7 @@ function AppContent() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background">
         <div className="text-blue-600 font-semibold animate-pulse text-lg">
-          Loading ConPlata...
+          Loading MoFlow...
         </div>
         <p className="text-xs text-muted-foreground mt-2">Checking Supabase Session</p>
       </div>

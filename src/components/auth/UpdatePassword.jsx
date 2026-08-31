@@ -36,7 +36,7 @@ export default function UpdatePassword() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4 py-10">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/20 mb-4">
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center shadow-lg shadow-blue-600/20 mb-4">
             <Icon name="KeyRound" size={26} />
           </div>
           <h1 className="text-2xl font-extrabold text-foreground">Set a new password</h1>
@@ -56,7 +56,7 @@ export default function UpdatePassword() {
               <label className="block text-xs font-semibold text-muted-foreground mb-1">Confirm password</label>
               <input type="password" required autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Re-enter password" className={inputCls} />
             </div>
-            <button type="submit" disabled={loading} className="w-full py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors">
+            <button type="submit" disabled={loading} className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
               {loading ? 'Updating…' : 'Update password'}
             </button>
           </form>

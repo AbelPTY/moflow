@@ -497,7 +497,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
             <button
               onClick={save}
               disabled={busy}
-              className="px-4 py-3 min-h-[44px] bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+              className="px-4 py-3 min-h-[44px] bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:bg-primary/90 disabled:opacity-50"
             >
               {busy ? 'Saving…' : 'Save card'}
             </button>
@@ -684,7 +684,7 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
 
         <button
           onClick={onDelete}
-          className="text-xs font-semibold text-red-500 hover:text-red-600"
+          className="text-xs font-semibold text-destructive hover:text-destructive/80"
         >
           Remove
         </button>

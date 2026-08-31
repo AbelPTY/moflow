@@ -180,7 +180,7 @@ const BalanceScanner = ({ onApply, onClose }) => {
             className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors ${
               scanning
                 ? 'bg-muted text-muted-foreground cursor-wait'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90'
             }`}
           >
             <Icon name="Camera" size={18} />
@@ -318,7 +318,7 @@ const BalanceScanner = ({ onApply, onClose }) => {
               type="button"
               onClick={() => canApply && onApply(singleCurrencyTotal)}
               disabled={!canApply}
-              className="px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {canApply
                 ? `Use ${formatCurrency(singleCurrencyTotal, singleCurrency)} as available cash`

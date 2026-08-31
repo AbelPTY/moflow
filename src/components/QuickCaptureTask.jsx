@@ -165,7 +165,7 @@ export default function QuickCaptureTask() {
             <div className="flex items-start gap-3">
               <button
                 onClick={recording ? stopRecording : startRecording}
-                className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white transition-all ${recording ? 'bg-red-500 animate-pulse' : 'bg-blue-600 hover:bg-blue-700'}`}
+                className={`shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-white transition-all ${recording ? 'bg-red-500 animate-pulse' : 'bg-primary hover:bg-primary/90'}`}
               >
                 <Icon name={recording ? 'Square' : 'Mic'} size={20} />
               </button>

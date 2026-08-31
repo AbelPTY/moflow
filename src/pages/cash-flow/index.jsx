@@ -1231,7 +1231,7 @@ const CashFlow = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold">Cash Flow</h1>
+          <h1 className="text-3xl font-bold">Flow</h1>
           <p className="text-sm text-muted-foreground font-medium mt-1">
             See what your cash is likely to look like after income, known
             commitments, and normal spending behavior.
@@ -1364,29 +1364,29 @@ const CashFlow = () => {
             <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
               Look ahead
             </label>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex w-full gap-1 rounded-xl border border-border bg-muted/40 p-1">
               {WINDOW_OPTIONS.map((days) => {
                 const active = lookaheadMode === 'preset' && windowDays === days;
                 return (
                   <button
                     key={days}
                     onClick={() => selectPreset(days)}
-                    className={`flex-1 min-w-[64px] py-2 min-h-[40px] rounded-lg text-sm font-bold transition-colors ${
+                    className={`flex-1 min-w-0 py-2 min-h-[40px] rounded-lg text-sm font-bold transition-colors ${
                       active
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-muted text-muted-foreground hover:bg-muted'
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
-                    {days} days
+                    {days}d
                   </button>
                 );
               })}
               <button
                 onClick={selectCustomMode}
-                className={`flex-1 min-w-[64px] py-2 min-h-[40px] rounded-lg text-sm font-bold transition-colors ${
+                className={`flex-1 min-w-0 py-2 min-h-[40px] rounded-lg text-sm font-bold transition-colors ${
                   lookaheadMode === 'custom'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-muted text-muted-foreground hover:bg-muted'
+                    ? 'bg-card text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Custom
@@ -1510,8 +1510,8 @@ const CashFlow = () => {
             {showActivityPrompt && (
               <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 shadow-sm p-5">
                 <div className="flex items-start gap-3">
-                  <div className="bg-blue-600/10 p-2.5 rounded-xl shrink-0">
-                    <Icon name="ScanLine" size={22} className="text-blue-600" />
+                  <div className="bg-primary/10 p-2.5 rounded-xl shrink-0">
+                    <Icon name="ScanLine" size={22} className="text-primary" />
                   </div>
                   <div className="min-w-0">
                     <p className="font-extrabold text-foreground">
@@ -1533,7 +1533,7 @@ const CashFlow = () => {
                           trackProductEvent('onboarding_activity_prompt_clicked', { source_screen: 'flow' });
                           navigate('/financial-overview?scan=activity');
                         }}
-                        className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                        className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
                       >
                         <Icon name="Camera" size={18} />
                         Scan recent activity
@@ -1670,7 +1670,7 @@ const CashFlow = () => {
                               <button
                                 type="button"
                                 onClick={() => saveYappyEdit(item)}
-                                className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold"
+                                className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold"
                               >
                                 Save
                               </button>
@@ -1876,7 +1876,7 @@ const CashFlow = () => {
 
             <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden mb-8">
               <div className="px-5 py-3 border-b border-border">
-                <p className="font-bold text-foreground">Cash flow timeline</p>
+                <p className="font-bold text-foreground">Timeline</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   This timeline shows actual cash timing, including detected
                   recurring Yappy fixed expenses. Expected credit-card purchases

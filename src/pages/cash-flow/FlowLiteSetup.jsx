@@ -157,8 +157,8 @@ const FlowLiteSetup = ({
   return (
     <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 shadow-sm p-5 sm:p-6">
       <div className="flex items-start gap-3 mb-4">
-        <div className="bg-blue-600/10 p-2.5 rounded-xl shrink-0">
-          <Icon name="Wallet" size={22} className="text-blue-600" />
+        <div className="bg-primary/10 p-2.5 rounded-xl shrink-0">
+          <Icon name="Wallet" size={22} className="text-primary" />
         </div>
         <div className="min-w-0">
           <h2 className="text-lg font-extrabold text-foreground">
@@ -318,7 +318,7 @@ const FlowLiteSetup = ({
         <button
           type="button"
           onClick={onSeeFullFlow}
-          className="inline-flex items-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+          className="inline-flex items-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
         >
           See full Flow
           <Icon name="ArrowDown" size={16} />

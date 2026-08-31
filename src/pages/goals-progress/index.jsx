@@ -77,7 +77,7 @@ const GoalsProgress = () => {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <PrimaryNavBar />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
 
         {/* HEADER */}
         <div className="mb-8 flex items-start justify-between gap-4">

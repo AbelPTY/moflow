@@ -113,7 +113,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
       {form && (
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-[1fr_130px_160px] gap-2 items-end">
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
               Label
             </label>
             <input
@@ -131,7 +131,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
               Amount
             </label>
             <input
@@ -147,7 +147,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
           </div>
 
           <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+            <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
               Date
             </label>
             <input
@@ -173,7 +173,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
             <button
               type="button"
               onClick={save}
-              className="px-4 py-2.5 min-h-[44px] rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700"
+              className="px-4 py-2.5 min-h-[44px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90"
             >
               Save
             </button>
@@ -215,7 +215,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
                 <button
                   type="button"
                   onClick={() => onDelete(item.id)}
-                  className="text-xs font-semibold text-red-500 hover:text-red-600"
+                  className="text-xs font-semibold text-destructive hover:text-destructive/80"
                 >
                   Delete
                 </button>

@@ -43,7 +43,7 @@ const Bills = () => {
     <div className="min-h-screen bg-background text-foreground">
       <PrimaryNavBar />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold">Bills</h1>
           <p className="text-sm text-muted-foreground font-medium mt-1">
