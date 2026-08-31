@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from '../server/rateLimit.js';
 import { safeError } from '../server/safeError.js';
+import { buildImageParts } from '../server/imageParts.js';
 
 // Reads a screenshot of a banking-app ACCOUNT SUMMARY and extracts the visible
 // account names + balances so the user can review them and (explicitly) apply a
@@ -21,12 +22,11 @@ export default async function handler(req, res) {
   if (!(await applyRateLimit({ req, res, user, scope: 'gemini_vision' }))) return;
 
   try {
-    const { image } = req.body || {};
-    if (!image) {
+    // Accept a single `image` (legacy) or `images: []` (multi-screenshot).
+    const imageParts = buildImageParts(req.body);
+    if (imageParts.length === 0) {
       return res.status(400).json({ error: 'No image provided' });
     }
-
-    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: 'models/gemini-2.5-flash' });
@@ -69,18 +69,16 @@ export default async function handler(req, res) {
       - Deposit/cash accounts (checking, savings, cash): is_credit=false.
       - If the account type is not identifiable, use type "other" and
         is_credit=false unless it is clearly a credit product.
+      - You may be given MULTIPLE screenshots of the same banking app. Treat
+        them as ONE session: list each distinct account ONCE. If the SAME account
+        appears in more than one screenshot, include it a single time with its
+        clearest balance -- do NOT duplicate it and do NOT add balances together.
+        Different accounts (even of the same type) must stay separate.
       - If no accounts are clearly visible, return {"accounts": []}.
       - Return JSON only. No explanation.
     `;
 
-    const imagePart = {
-      inlineData: {
-        data: base64Data,
-        mimeType: 'image/jpeg',
-      },
-    };
-
-    const result = await model.generateContent([prompt, imagePart]);
+    const result = await model.generateContent([prompt, ...imageParts]);
 
     let responseText = result.response.text();
     responseText = responseText

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import Icon from './AppIcon';
 import useLoans from '../hooks/useLoans';
@@ -6,6 +6,7 @@ import useScheduledPayments from '../hooks/useScheduledPayments';
 import { analyzeLoan, describeMonths } from '../lib/loanMath';
 import { trackProductEvent } from '../lib/analytics';
 import { authHeader } from '../lib/apiClient';
+import ImageScanTray from './ImageScanTray';
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -48,86 +49,61 @@ export default function LoansPanel() {
   const [scanned, setScanned] = useState(false); // true when the form was prefilled by a scan
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
-  const fileInputRef = useRef(null);
+  const [scanImages, setScanImages] = useState([]); // multi-page statement images
+  const [scanOpen, setScanOpen] = useState(false);  // collecting images before scan
 
-  const openAdd = () => { setScanned(false); setScanError(''); setForm({ ...BLANK }); };
+  const openAdd = () => { setScanned(false); setScanError(''); setScanOpen(false); setForm({ ...BLANK }); };
 
-  const triggerScan = () => { setScanError(''); fileInputRef.current?.click(); };
+  const openScan = () => { setScanError(''); setScanImages([]); setScanOpen(true); };
 
-  // Scan a loan statement, prefill the EXISTING form, and let the user review /
-  // edit before saving. Never auto-saves. Reuses /api/scanCardStatement in
-  // mode:'loan' (no new API function), and the same client-side compression as
-  // the other scanners.
-  const handleScanLoan = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-
+  // Scan one or more loan-statement pages as ONE logical statement
+  // ({ images, mode:'loan' }), prefill the EXISTING form, and let the user
+  // review before saving. Never auto-saves. Reuses /api/scanCardStatement.
+  const runLoanScan = async () => {
+    if (scanImages.length === 0) return;
     setScanning(true);
     setScanError('');
+    try {
+      const resp = await fetch('/api/scanCardStatement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        body: JSON.stringify({ images: scanImages, mode: 'loan' }),
+      });
+      if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
 
-    const reader = new FileReader();
-    reader.onerror = () => { setScanning(false); setScanError('Could not read that file.'); };
+      const d = await resp.json();
 
-    reader.onloadend = () => {
-      const img = new Image();
-      img.onerror = () => { setScanning(false); setScanError('Could not load that image.'); };
+      const principal = Number(d.remaining_principal) || 0;
+      const payment = Number(d.monthly_payment) || 0;
+      const hasUseful =
+        principal > 0 || payment > 0 || (d.apr !== null && d.apr !== undefined) || !!d.loan_name_hint;
 
-      img.onload = async () => {
-        try {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1200;
-          const scale = Math.min(1, MAX_WIDTH / img.width);
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-          const base64Image = canvas.toDataURL('image/jpeg', 0.7);
+      if (!hasUseful) {
+        setScanError("We couldn't confidently read the loan details. Try other images or enter them manually.");
+        return;
+      }
 
-          const resp = await fetch('/api/scanCardStatement', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
-            body: JSON.stringify({ image: base64Image, mode: 'loan' }),
-          });
-          if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
-
-          const d = await resp.json();
-
-          const principal = Number(d.remaining_principal) || 0;
-          const payment = Number(d.monthly_payment) || 0;
-          const hasUseful =
-            principal > 0 || payment > 0 || d.apr !== null && d.apr !== undefined || !!d.loan_name_hint;
-
-          if (!hasUseful) {
-            setScanError("We couldn't confidently read the loan details. You can try another image or enter them manually.");
-            return;
-          }
-
-          // Prefill ONLY detected values; leave undetected fields blank (never
-          // fake 0s presented as detected).
-          setForm({
-            ...BLANK,
-            loan_name: d.loan_name_hint || '',
-            loan_type: d.loan_type || BLANK.loan_type,
-            remaining_principal: principal > 0 ? String(principal) : '',
-            apr: d.apr !== null && d.apr !== undefined ? String(d.apr) : '',
-            monthly_payment: payment > 0 ? String(payment) : '',
-            next_payment_date: d.next_payment_date || '',
-            remaining_months: d.remaining_months ? String(d.remaining_months) : '',
-            maturity_date: d.maturity_date || '',
-          });
-          setScanned(true);
-        } catch (err) {
-          setScanError('Could not read the loan statement — try another image or enter it manually. ' + (err?.message || ''));
-        } finally {
-          setScanning(false);
-        }
-      };
-
-      img.src = reader.result;
-    };
-
-    reader.readAsDataURL(file);
+      // Prefill ONLY detected values; leave undetected fields blank.
+      setForm({
+        ...BLANK,
+        loan_name: d.loan_name_hint || '',
+        loan_type: d.loan_type || BLANK.loan_type,
+        remaining_principal: principal > 0 ? String(principal) : '',
+        apr: d.apr !== null && d.apr !== undefined ? String(d.apr) : '',
+        monthly_payment: payment > 0 ? String(payment) : '',
+        next_payment_date: d.next_payment_date || '',
+        remaining_months: d.remaining_months ? String(d.remaining_months) : '',
+        maturity_date: d.maturity_date || '',
+      });
+      setScanned(true);
+      setScanOpen(false);
+    } catch (err) {
+      setScanError('Could not read the loan statement — try other images or enter it manually. ' + (err?.message || ''));
+    } finally {
+      setScanning(false);
+    }
   };
+
   const openEdit = (loan) =>
     setForm({
       id: loan.id,
@@ -181,33 +157,44 @@ export default function LoansPanel() {
 
   return (
     <div className="bg-card rounded-xl border border-border shadow-sm mb-8 overflow-hidden">
-      {/* Always-mounted file input so the scanner can be triggered from the
-          empty-state hero or the header, on mobile (camera/gallery) or desktop. */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleScanLoan}
-        disabled={scanning}
-        className="hidden"
-      />
-
       <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
         <div className="font-bold text-foreground">Loans</div>
-        {!form && loans.length > 0 && (
+        {!form && !scanOpen && loans.length > 0 && (
           <div className="flex items-center gap-3">
-            <button onClick={triggerScan} disabled={scanning} className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50">
+            <button onClick={openScan} className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:opacity-80">
               <Icon name="Camera" size={14} />
-              {scanning ? 'Reading…' : 'Scan another loan'}
+              Scan another loan
             </button>
-            <button onClick={openAdd} className="text-sm font-semibold text-blue-600 hover:text-blue-700">
+            <button onClick={openAdd} className="text-sm font-semibold text-primary hover:opacity-80">
               + Add loan
             </button>
           </div>
         )}
       </div>
 
-      {!form && scanError && (
+      {/* SCAN SESSION: collect statement pages, then scan them together. */}
+      {!form && scanOpen && (
+        <div className="p-5 bg-primary/5 border-b border-border">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="text-sm font-bold text-foreground">Scan loan statement</p>
+            <button onClick={() => setScanOpen(false)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">Cancel</button>
+          </div>
+          <ImageScanTray
+            images={scanImages}
+            setImages={setScanImages}
+            onScan={runLoanScan}
+            scanning={scanning}
+            addLabel="Add statement pages"
+          />
+          <p className="text-[11px] text-muted-foreground mt-2">
+            Add multiple pages if details are spread out (balance/payment on one page, APR/maturity on another).
+            We&apos;ll prefill the form for you to review before saving.
+          </p>
+          {scanError && <p className="text-xs text-red-600 mt-2">{scanError}</p>}
+        </div>
+      )}
+
+      {!form && !scanOpen && scanError && (
         <div className="px-5 py-2 text-xs text-red-600 border-b border-border">{scanError}</div>
       )}
 
@@ -273,7 +260,7 @@ export default function LoansPanel() {
       {/* LIST / EMPTY STATE */}
       {loading ? (
         <div className="p-6 text-muted-foreground text-sm">Loading loans…</div>
-      ) : loans.length === 0 && !form ? (
+      ) : loans.length === 0 && !form && !scanOpen ? (
         <div className="p-6 sm:p-8">
           <div className="flex items-start gap-3">
             <div className="bg-primary/10 p-3 rounded-xl shrink-0">
@@ -291,9 +278,9 @@ export default function LoansPanel() {
             </div>
           </div>
           <div className="mt-6 flex flex-col sm:flex-row gap-3">
-            <button onClick={triggerScan} disabled={scanning} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-primary text-primary-foreground text-base font-bold hover:bg-primary/90 transition-colors disabled:opacity-50">
+            <button onClick={openScan} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-primary text-primary-foreground text-base font-bold hover:bg-primary/90 transition-colors">
               <Icon name="Camera" size={20} />
-              {scanning ? 'Reading statement…' : 'Scan loan statement'}
+              Scan loan statement
             </button>
             <button onClick={openAdd} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl border border-border text-foreground text-base font-semibold hover:bg-muted transition-colors">
               <Icon name="Plus" size={20} />

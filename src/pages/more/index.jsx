@@ -8,6 +8,12 @@ import Icon from '../../components/AppIcon';
 // this is information architecture only.
 const MORE_ITEMS = [
   {
+    label: 'Accounts',
+    description: 'Name and manage your checking, savings, and cash accounts.',
+    path: '/accounts',
+    icon: 'Landmark',
+  },
+  {
     label: 'Action Plan',
     description: 'Your next money moves, prioritized.',
     path: '/action-plan',

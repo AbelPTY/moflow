@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import Icon from './AppIcon';
 import { authHeader } from '../lib/apiClient';
+import { dedupeDetectedAccounts, isEligibleCashType, mergeAccountOptions, matchAccountByName } from '../lib/accountOptions';
+import useAccounts from '../hooks/useAccounts';
 
 // Reusable balance-screenshot scanner. Takes a photo/upload of a banking-app
 // account summary, calls /api/scanAccountBalances, and lets the user review and
@@ -28,92 +30,117 @@ const CREDIT_TYPES = new Set(['credit_card', 'credit', 'loan', 'debt', 'line_of_
 
 const isCreditRow = (row) => row.is_credit || CREDIT_TYPES.has(row.type);
 
+const MAX_IMAGES = 5;
+
 const BalanceScanner = ({ onApply, onClose }) => {
   const fileInputRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState('');
   const [rows, setRows] = useState(null); // null = nothing scanned yet
+  const [images, setImages] = useState([]); // compressed dataURLs for a session
+
+  // First-class accounts the user already created, so each detected balance row
+  // can be associated with a real account (e.g. "Banco General Checking") rather
+  // than a bare type. Active accounts only.
+  const { accounts } = useAccounts();
+  const accountNames = useMemo(
+    () => mergeAccountOptions(accounts, []).map((o) => o.name),
+    [accounts]
+  );
 
   const triggerPick = () => fileInputRef.current?.click();
 
-  const handleFile = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-picking the same file
-    if (!file) return;
-
-    setScanning(true);
-    setError('');
-
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setScanning(false);
-      setError('Could not read that file.');
-    };
-
-    reader.onloadend = () => {
-      const img = new Image();
-      img.onerror = () => {
-        setScanning(false);
-        setError('Could not load that image.');
-      };
-
-      img.onload = async () => {
-        try {
-          // Compress client-side like the card-statement scanner.
+  const compressImage = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('read failed'));
+      reader.onloadend = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('load failed'));
+        img.onload = () => {
           const canvas = document.createElement('canvas');
           const MAX_WIDTH = 1200;
           const scale = Math.min(1, MAX_WIDTH / img.width);
           canvas.width = Math.round(img.width * scale);
           canvas.height = Math.round(img.height * scale);
           canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-          const base64Image = canvas.toDataURL('image/jpeg', 0.7);
-
-          const resp = await fetch('/api/scanAccountBalances', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(await authHeader()),
-            },
-            body: JSON.stringify({ image: base64Image }),
-          });
-
-          if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
-
-          const data = await resp.json();
-          const accounts = Array.isArray(data?.accounts) ? data.accounts : [];
-
-          // Map into editable rows. Credit rows default to NOT counting.
-          const mapped = accounts.map((a, idx) => {
-            const credit = isCreditRow(a);
-            return {
-              id: `row-${idx}-${Date.now()}`,
-              name: a.name || '',
-              balance: String(a.balance ?? ''),
-              currency: (a.currency || 'USD').toUpperCase(),
-              type: a.type || 'other',
-              is_credit: credit,
-              include: !credit, // deposit rows count by default; credit never
-            };
-          });
-
-          setRows(mapped);
-          if (mapped.length === 0) {
-            setError('No account balances were clearly detected. Try a clearer screenshot or enter cash manually.');
-          }
-        } catch (err) {
-          setError(
-            'Could not read that screenshot — try again or enter cash manually. ' +
-              (err?.message || '')
-          );
-        } finally {
-          setScanning(false);
-        }
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        img.src = reader.result;
       };
+      reader.readAsDataURL(file);
+    });
 
-      img.src = reader.result;
-    };
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    setError('');
 
-    reader.readAsDataURL(file);
+    const room = MAX_IMAGES - images.length;
+    if (room <= 0) {
+      setError(`You can scan up to ${MAX_IMAGES} images at once.`);
+      return;
+    }
+    if (files.length > room) setError(`Only the first ${MAX_IMAGES} images are used per scan.`);
+
+    try {
+      const compressed = await Promise.all(files.slice(0, room).map(compressImage));
+      setImages((prev) => [...prev, ...compressed].slice(0, MAX_IMAGES));
+    } catch {
+      setError('Could not read one of those images. Try again.');
+    }
+  };
+
+  const removeImage = (idx) => setImages((prev) => prev.filter((_, i) => i !== idx));
+
+  const scanImages = async () => {
+    if (images.length === 0) return;
+    setScanning(true);
+    setError('');
+
+    try {
+      const resp = await fetch('/api/scanAccountBalances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        body: JSON.stringify({ images }),
+      });
+      if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
+
+      const data = await resp.json();
+      const accounts = Array.isArray(data?.accounts) ? data.accounts : [];
+
+      // Merge accounts across screenshots: the SAME account is shown once (never
+      // summed); distinct accounts stay separate even if same type/institution.
+      const merged = dedupeDetectedAccounts(accounts);
+
+      // Map into editable rows. Only eligible cash types (checking/savings/cash)
+      // count toward available cash by default; credit never does.
+      const mapped = merged.map((a, idx) => {
+        const credit = isCreditRow(a);
+        // Preselect an existing account ONLY on a strong (normalized) name match.
+        // A bare "savings"/"checking" never auto-resolves to one of several.
+        const strong = matchAccountByName(a.name, accounts);
+        return {
+          id: `row-${idx}-${Date.now()}`,
+          name: strong ? strong.account_name : (a.name || ''),
+          balance: String(a.balance ?? ''),
+          currency: (a.currency || 'USD').toUpperCase(),
+          type: a.type || 'other',
+          is_credit: credit,
+          include: !credit && isEligibleCashType(a.type),
+        };
+      });
+
+      setRows(mapped);
+      if (mapped.length === 0) {
+        setError('No account balances were clearly detected. Try clearer screenshots or enter cash manually.');
+      }
+    } catch (err) {
+      setError('Could not read those screenshots — try again or enter cash manually. ' + (err?.message || ''));
+    } finally {
+      setScanning(false);
+    }
   };
 
   const updateRow = (id, patch) =>
@@ -167,25 +194,66 @@ const BalanceScanner = ({ onApply, onClose }) => {
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        onChange={handleFile}
+        multiple
+        onChange={handleFileSelect}
         className="hidden"
       />
 
       {rows === null ? (
         <div className="mt-4">
-          <button
-            type="button"
-            onClick={triggerPick}
-            disabled={scanning}
-            className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors ${
-              scanning
-                ? 'bg-muted text-muted-foreground cursor-wait'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
-            }`}
-          >
-            <Icon name="Camera" size={18} />
-            {scanning ? 'Reading screenshot…' : 'Take photo or upload'}
-          </button>
+          {images.length === 0 ? (
+            <button
+              type="button"
+              onClick={triggerPick}
+              disabled={scanning}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <Icon name="Camera" size={18} />
+              Add screenshots
+            </button>
+          ) : (
+            <>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                {images.length} image{images.length === 1 ? '' : 's'} selected
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {images.map((src, idx) => (
+                  <div key={idx} className="relative">
+                    <img src={src} alt={`Page ${idx + 1}`} className="h-20 w-16 object-cover rounded-lg border border-border" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      aria-label={`Remove page ${idx + 1}`}
+                      className="absolute -top-2 -right-2 bg-card border border-border rounded-full p-0.5 text-muted-foreground hover:text-destructive shadow-sm"
+                    >
+                      <Icon name="X" size={14} />
+                    </button>
+                  </div>
+                ))}
+                {images.length < MAX_IMAGES && (
+                  <button
+                    type="button"
+                    onClick={triggerPick}
+                    className="h-20 w-16 rounded-lg border border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary"
+                  >
+                    <Icon name="Plus" size={18} />
+                    <span className="text-[10px] mt-0.5">Add</span>
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={scanImages}
+                disabled={scanning}
+                className={`mt-3 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors ${
+                  scanning ? 'bg-muted text-muted-foreground cursor-wait' : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                }`}
+              >
+                <Icon name="ScanLine" size={18} />
+                {scanning ? 'Reading…' : `Scan ${images.length} image${images.length === 1 ? '' : 's'}`}
+              </button>
+            </>
+          )}
           {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
         </div>
       ) : (
@@ -204,8 +272,24 @@ const BalanceScanner = ({ onApply, onClose }) => {
               return (
                 <div
                   key={r.id}
-                  className="rounded-xl border border-border bg-card p-3 flex flex-col sm:flex-row sm:items-center gap-2"
+                  className="rounded-xl border border-border bg-card p-3 flex flex-col gap-2"
                 >
+                  {/* ASSIGN TO AN EXISTING FIRST-CLASS ACCOUNT (or keep/edit the
+                      scanned name below to create/label a new one). */}
+                  {accountNames.length > 0 && !credit && (
+                    <select
+                      value={accountNames.includes(r.name) ? r.name : ''}
+                      onChange={(e) => { if (e.target.value) updateRow(r.id, { name: e.target.value }); }}
+                      className={`${inputCls} w-full`}
+                    >
+                      <option value="">Assign to an account… (or keep the name below)</option>
+                      {accountNames.map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   {/* COUNT TOGGLE */}
                   <label
                     className={`flex items-center gap-2 shrink-0 ${
@@ -261,6 +345,7 @@ const BalanceScanner = ({ onApply, onClose }) => {
                     >
                       <Icon name="Trash2" size={16} />
                     </button>
+                  </div>
                   </div>
                 </div>
               );

@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from '../server/rateLimit.js';
 import { safeError } from '../server/safeError.js';
+import { buildImageParts } from '../server/imageParts.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -15,8 +16,11 @@ export default async function handler(req, res) {
   if (!(await applyRateLimit({ req, res, user, scope: 'gemini_vision' }))) return;
 
   try {
-    const { image, mode } = req.body || {};
-    if (!image) {
+    const { mode } = req.body || {};
+
+    // Accept a single `image` (legacy) or `images: []` (multi-screenshot).
+    const imageParts = buildImageParts(req.body);
+    if (imageParts.length === 0) {
       return res.status(400).json({ error: 'No image provided' });
     }
 
@@ -24,9 +28,6 @@ export default async function handler(req, res) {
     // within the Vercel Hobby function limit. Absent/receipt => unchanged
     // legacy behavior. 'activity' => recent-activity transaction-list extraction.
     const isActivity = mode === 'activity' || mode === 'recent_activity';
-
-    // Remove the data URL prefix so Gemini gets the raw base64 string
-    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
 
     // Initialize Gemini with your secure Vercel key
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -64,6 +65,10 @@ export default async function handler(req, res) {
       - If a row shows a date without a year, infer the most likely recent year;
         if truly unknown, use the current year.
       - reference/account_hint are empty strings when not clearly visible.
+      - You may be given MULTIPLE screenshots of the same activity list (scrolled
+        pages). Treat them as ONE list and combine every visible transaction. If
+        the SAME transaction row appears in more than one screenshot (overlap),
+        include it only ONCE.
       - If nothing is clearly a transaction, return {"transactions": []}.
       - Return JSON only. No explanation.
     `;
@@ -120,15 +125,8 @@ export default async function handler(req, res) {
 
     const prompt = isActivity ? activityPrompt : receiptPrompt;
 
-    const imagePart = {
-      inlineData: {
-        data: base64Data,
-        mimeType: "image/jpeg"
-      }
-    };
-
-    // Send to Gemini
-    const result = await model.generateContent([prompt, imagePart]);
+    // Send to Gemini (one or more image parts).
+    const result = await model.generateContent([prompt, ...imageParts]);
     let responseText = result.response.text();
 
     // Clean up the response

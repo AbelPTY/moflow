@@ -55,9 +55,100 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
   const effectiveAccount = (usingCustom ? customAccount : account).trim();
   const accountChosen = effectiveAccount.length > 0;
 
-  const triggerPick = () => {
+  // --- Multi-image session: collect up to MAX_IMAGES screenshots, then scan
+  //     them together as ONE import session. ---
+  const MAX_IMAGES = 5;
+  const [images, setImages] = useState([]); // array of compressed dataURLs
+
+  const triggerPick = () => fileInputRef.current?.click();
+
+  const compressImage = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('read failed'));
+      reader.onloadend = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error('load failed'));
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          const scale = Math.min(1, MAX_WIDTH / img.width);
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    setError('');
+
+    const room = MAX_IMAGES - images.length;
+    if (room <= 0) {
+      setError(`You can scan up to ${MAX_IMAGES} images at once.`);
+      return;
+    }
+    const toAdd = files.slice(0, room);
+    if (files.length > room) {
+      setError(`Only the first ${MAX_IMAGES} images are used per scan.`);
+    }
+
+    try {
+      const compressed = await Promise.all(toAdd.map(compressImage));
+      setImages((prev) => [...prev, ...compressed].slice(0, MAX_IMAGES));
+    } catch {
+      setError('Could not read one of those images. Try again.');
+    }
+  };
+
+  const removeImage = (idx) => setImages((prev) => prev.filter((_, i) => i !== idx));
+
+  const scanImages = async () => {
+    if (images.length === 0) return;
+    setScanning(true);
+    setError('');
+    setDone(null);
     trackProductEvent('activity_scan_started', { source_screen: 'activity' });
-    fileInputRef.current?.click();
+
+    try {
+      const resp = await fetch('/api/scanReceipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        body: JSON.stringify({ images, mode: 'activity' }),
+      });
+      if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
+
+      const data = await resp.json();
+      const txns = Array.isArray(data?.transactions) ? data.transactions : [];
+      trackProductEvent('activity_scan_completed', { source_screen: 'activity' });
+
+      // Transactions from ALL screenshots, combined into one editable batch.
+      const mapped = txns.map((t, idx) => ({
+        id: `row-${idx}-${Date.now()}`,
+        date: String(t.date || todayStr()).slice(0, 10),
+        description: String(t.description || '').trim(),
+        amount: String(t.amount ?? ''),
+        reference: String(t.reference || '').trim(),
+      }));
+
+      // Dedupe across screenshots + within batch + against the DB.
+      const flagged = await runDuplicateFlags(mapped);
+      setRows(flagged.map((r) => ({ ...r, include: !r.isDuplicate })));
+
+      if (flagged.length === 0) {
+        setError('No transactions were clearly detected. Try clearer screenshots.');
+      }
+    } catch (err) {
+      setError('Could not read those screenshots — try again. ' + (err?.message || ''));
+    } finally {
+      setScanning(false);
+    }
   };
 
   const runDuplicateFlags = async (mapped) => {
@@ -79,84 +170,6 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
     } catch {
       return mapped.map((r) => ({ ...r }));
     }
-  };
-
-  const handleFile = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-
-    setScanning(true);
-    setError('');
-    setDone(null);
-
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setScanning(false);
-      setError('Could not read that file.');
-    };
-
-    reader.onloadend = () => {
-      const img = new Image();
-      img.onerror = () => {
-        setScanning(false);
-        setError('Could not load that image.');
-      };
-
-      img.onload = async () => {
-        try {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1200;
-          const scale = Math.min(1, MAX_WIDTH / img.width);
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-          const base64Image = canvas.toDataURL('image/jpeg', 0.7);
-
-          const resp = await fetch('/api/scanReceipt', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(await authHeader()),
-            },
-            body: JSON.stringify({ image: base64Image, mode: 'activity' }),
-          });
-
-          if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
-
-          const data = await resp.json();
-          const txns = Array.isArray(data?.transactions) ? data.transactions : [];
-          trackProductEvent('activity_scan_completed', { source_screen: 'activity' });
-
-          const mapped = txns.map((t, idx) => ({
-            id: `row-${idx}-${Date.now()}`,
-            date: String(t.date || todayStr()).slice(0, 10),
-            description: String(t.description || '').trim(),
-            amount: String(t.amount ?? ''),
-            reference: String(t.reference || '').trim(),
-          }));
-
-          const flagged = await runDuplicateFlags(mapped);
-
-          // Likely duplicates default to NOT selected; everything else selected.
-          setRows(
-            flagged.map((r) => ({ ...r, include: !r.isDuplicate }))
-          );
-
-          if (flagged.length === 0) {
-            setError('No transactions were clearly detected. Try a clearer screenshot.');
-          }
-        } catch (err) {
-          setError('Could not read that screenshot — try again. ' + (err?.message || ''));
-        } finally {
-          setScanning(false);
-        }
-      };
-
-      img.src = reader.result;
-    };
-
-    reader.readAsDataURL(file);
   };
 
   const updateRow = (id, patch) =>
@@ -259,7 +272,8 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
         ref={fileInputRef}
         type="file"
         accept="image/*"
-        onChange={handleFile}
+        multiple
+        onChange={handleFileSelect}
         className="hidden"
       />
 
@@ -276,10 +290,10 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
           <div className="mt-3 flex gap-2">
             <button
               type="button"
-              onClick={() => setDone(null)}
+              onClick={() => { setDone(null); setImages([]); setRows(null); setError(''); }}
               className="px-4 py-2.5 min-h-[44px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90"
             >
-              Scan another
+              Scan more
             </button>
             <button
               type="button"
@@ -292,22 +306,66 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
         </div>
       )}
 
-      {/* INITIAL / SCAN STATE */}
+      {/* INITIAL / SCAN STATE (multi-image) */}
       {!done && rows === null && (
         <div className="mt-4">
-          <button
-            type="button"
-            onClick={triggerPick}
-            disabled={scanning}
-            className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors ${
-              scanning
-                ? 'bg-muted text-muted-foreground cursor-wait'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
-            }`}
-          >
-            <Icon name="Camera" size={18} />
-            {scanning ? 'Reading screenshot…' : 'Take photo or upload'}
-          </button>
+          {images.length === 0 ? (
+            <button
+              type="button"
+              onClick={triggerPick}
+              disabled={scanning}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <Icon name="Camera" size={18} />
+              Add screenshots
+            </button>
+          ) : (
+            <>
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                {images.length} image{images.length === 1 ? '' : 's'} selected
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {images.map((src, idx) => (
+                  <div key={idx} className="relative">
+                    <img src={src} alt={`Page ${idx + 1}`} className="h-20 w-16 object-cover rounded-lg border border-border" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      aria-label={`Remove page ${idx + 1}`}
+                      className="absolute -top-2 -right-2 bg-card border border-border rounded-full p-0.5 text-muted-foreground hover:text-destructive shadow-sm"
+                    >
+                      <Icon name="X" size={14} />
+                    </button>
+                    <span className="absolute bottom-0 left-0 right-0 text-[10px] text-center text-white bg-black/40 rounded-b-lg">
+                      {idx + 1}
+                    </span>
+                  </div>
+                ))}
+                {images.length < MAX_IMAGES && (
+                  <button
+                    type="button"
+                    onClick={triggerPick}
+                    className="h-20 w-16 rounded-lg border border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary"
+                  >
+                    <Icon name="Plus" size={18} />
+                    <span className="text-[10px] mt-0.5">Add</span>
+                  </button>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={scanImages}
+                disabled={scanning}
+                className={`mt-3 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors ${
+                  scanning ? 'bg-muted text-muted-foreground cursor-wait' : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                }`}
+              >
+                <Icon name="ScanLine" size={18} />
+                {scanning ? 'Reading…' : `Scan ${images.length} image${images.length === 1 ? '' : 's'}`}
+              </button>
+            </>
+          )}
           {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
         </div>
       )}

@@ -12,6 +12,7 @@ import Cards from './pages/cards';
 import ActionPlan from './pages/action-plan';
 import Bills from './pages/bills';
 import More from './pages/more';
+import Accounts from './pages/accounts';
 import BottomNav from './components/navigation/BottomNav';
 
 const Routes = () => {
@@ -31,6 +32,7 @@ const Routes = () => {
         <Route path="/spending-analytics" element={<SpendingAnalytics />} />
         <Route path="/bills" element={<Bills />} />
         <Route path="/more" element={<More />} />
+        <Route path="/accounts" element={<Accounts />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       <BottomNav />

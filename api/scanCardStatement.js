@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from '../server/rateLimit.js';
 import { safeError } from '../server/safeError.js';
+import { buildImageParts } from '../server/imageParts.js';
 
 // Reads a photo of a credit-card statement's payment summary and extracts the
 // figures the financing guard needs. Mirrors scanReceipt.js (Gemini vision,
@@ -19,8 +20,11 @@ export default async function handler(req, res) {
   if (!(await applyRateLimit({ req, res, user, scope: 'gemini_vision' }))) return;
 
   try {
-    const { image, mode } = req.body || {};
-    if (!image) {
+    const { mode } = req.body || {};
+
+    // Accept a single `image` (legacy) or `images: []` (multi-page statement).
+    const imageParts = buildImageParts(req.body);
+    if (imageParts.length === 0) {
       return res.status(400).json({ error: 'No image provided' });
     }
 
@@ -28,8 +32,6 @@ export default async function handler(req, res) {
     // statement scan (default / absent mode -- unchanged) and the loan statement
     // scan (mode === 'loan'), so we stay within the Vercel Hobby function limit.
     const isLoan = mode === 'loan';
-
-    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: 'models/gemini-2.5-flash' });
@@ -105,16 +107,16 @@ export default async function handler(req, res) {
       - Return JSON only. No explanation.
     `;
 
-    const prompt = isLoan ? loanPrompt : cardPrompt;
+    const basePrompt = isLoan ? loanPrompt : cardPrompt;
+    // When several pages are supplied, synthesize ONE record from all of them
+    // (e.g. page 1 balance/payment + page 2 APR/maturity). Single-image behavior
+    // is unchanged.
+    const prompt =
+      imageParts.length > 1
+        ? `${basePrompt}\n      - You are given MULTIPLE pages of the SAME statement. Combine details from all pages into ONE record; if a field appears on more than one page, use the clearest value. Do not output multiple records.`
+        : basePrompt;
 
-    const imagePart = {
-      inlineData: {
-        data: base64Data,
-        mimeType: 'image/jpeg',
-      },
-    };
-
-    const result = await model.generateContent([prompt, imagePart]);
+    const result = await model.generateContent([prompt, ...imageParts]);
 
     let responseText = result.response.text();
     responseText = responseText

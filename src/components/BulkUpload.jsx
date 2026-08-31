@@ -5,6 +5,9 @@ import * as XLSX from 'xlsx';
 import rulesData from '../rules/merchant_rules.json';
 import { classifyTransaction } from '../lib/engine/ruleMatcher';
 import useUserMerchantRules from '../hooks/useUserMerchantRules';
+import useAccounts from '../hooks/useAccounts';
+import useLegacyAccountNames from '../hooks/useLegacyAccountNames';
+import { mergeAccountOptions } from '../lib/accountOptions';
 import { authHeader } from '../lib/apiClient';
 
 // --- UTILIDADES ---
@@ -258,7 +261,10 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
   const { userRules } = useUserMerchantRules(); // active user rules (empty today)
   const closeModal = () => { if (onClose) onClose(); };
   const [activeTab, setActiveTab] = useState('text');
-  const [selectedAccount, setSelectedAccount] = useState('Banco General - Savings');
+  const [selectedAccount, setSelectedAccount] = useState('Cash/Manual');
+  const { accounts: userAccounts } = useAccounts();
+  const legacyAccountNames = useLegacyAccountNames();
+  const accountOptions = mergeAccountOptions(userAccounts, legacyAccountNames).map((o) => o.name);
   const [rawText, setRawText] = useState('');
   const [loading, setLoading] = useState(false);
   const [parsedTransactions, setParsedTransactions] = useState([]);
@@ -827,20 +833,16 @@ return (
               onChange={(e) => setSelectedAccount(e.target.value)}
               style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid var(--color-border)' }}
             >
-              <option value="Banco General - Savings">Banco General - Savings</option>
-              <option value="Banco General - Mileage CC">Banco General - Mileage CC</option>
-              <option value="Banco General - Star CC">Banco General - Star CC</option>
-              <option value="Davivienda CC">Davivienda CC</option>
-              <option value="Davivienda Checking">Davivienda Checking</option>
-              <option value="Cooperativa Profesionales">Cooperativa Profesionales</option>
-              <option value="Cooperativa Profesionales Mastercard">Cooperativa Profesionales Mastercard</option>
-              <option value="UNFCU Membership Share">UNFCU Membership Share</option>
-              <option value="UNFCU Savings 0001">UNFCU Savings 0001</option>
-              <option value="UNFCU Checking 0002">UNFCU Checking 0002</option>
-              <option value="UNFCU Visa Elite 5659">UNFCU Visa Elite 5659</option>
-              <option value="UNFCU Visa Elite 1309">UNFCU Visa Elite 1309</option>
-              <option value="UNFCU Personal Loan 7612">UNFCU Personal Loan 7612</option>
+              {accountOptions.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+              <option value="Cash/Manual">Cash/Manual</option>
             </select>
+            {accountOptions.length === 0 && (
+              <p style={{ fontSize: '12px', color: 'var(--color-muted-foreground)', marginTop: '4px' }}>
+                Add your accounts in More → Accounts to see them here.
+              </p>
+            )}
           </div>
         )}
 

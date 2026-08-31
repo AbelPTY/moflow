@@ -17,6 +17,8 @@ import rulesData from '../../rules/merchant_rules.json';
 import { classifyTransaction } from '../../lib/engine/ruleMatcher';
 import useUserMerchantRules from '../../hooks/useUserMerchantRules';
 import useOnboarding from '../../hooks/useOnboarding';
+import useAccounts from '../../hooks/useAccounts';
+import { mergeAccountOptions } from '../../lib/accountOptions';
 import { trackProductEvent } from '../../lib/analytics';
 
 const COLORS = {
@@ -212,6 +214,13 @@ const FinancialOverview = () => {
   }, []);
 
   const uniqueAccounts = useMemo(() => transactions ? [...new Set(transactions.map(t => t.account).filter(Boolean))].sort() : [], [transactions]);
+  // First-class accounts + legacy transaction-derived names, for the importer's
+  // destination selector (multiple same-type accounts stay distinct).
+  const { accounts: firstClassAccounts } = useAccounts();
+  const importAccountNames = useMemo(
+    () => mergeAccountOptions(firstClassAccounts, uniqueAccounts).map((o) => o.name),
+    [firstClassAccounts, uniqueAccounts]
+  );
   const uniqueCategories = useMemo(() => transactions ? [...new Set(transactions.map(t => t.category).filter(Boolean))].sort() : [], [transactions]);
   const uniqueBuckets = useMemo(() => transactions ? [...new Set(transactions.map(t => t.budgetBucket).filter(Boolean))].sort() : [], [transactions]);
 
@@ -543,7 +552,7 @@ const handleDeleteTransaction = async (t) => {
         {showActivityScanner && (
           <div className="mb-8">
             <RecentActivityScanner
-              accounts={uniqueAccounts}
+              accounts={importAccountNames}
               onImported={() => {
                 trackProductEvent('activity_import_completed', { source_screen: 'activity' });
                 updateOnboarding({ activityImportCompleted: true });

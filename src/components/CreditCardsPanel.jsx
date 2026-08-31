@@ -1,6 +1,5 @@
 import React, {
   useState,
-  useRef,
   forwardRef,
   useImperativeHandle,
 } from 'react';
@@ -13,6 +12,7 @@ import {
 } from '../lib/cardGuard';
 import { authHeader } from '../lib/apiClient';
 import { trackProductEvent } from '../lib/analytics';
+import ImageScanTray from './ImageScanTray';
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', {
@@ -47,10 +47,11 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false); // true once a scan pre-fills the form
-  const fileInputRef = useRef(null);
+  const [scanImages, setScanImages] = useState([]); // multi-page statement images
 
   const openAdd = () => {
     setScanned(false);
+    setScanImages([]);
     setForm({
       ...BLANK,
       statement_paid: false,
@@ -58,21 +59,15 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
     });
   };
 
-  // Trigger the statement scanner from outside the panel (e.g. the Cards hero
-  // CTA). Opens the add form if none is open, then reuses the same hidden file
-  // input and scan pipeline -- no second scanner implementation.
-  const triggerScan = () => {
-    trackProductEvent('card_scan_started', { source_screen: 'cards' });
-    fileInputRef.current?.click();
-  };
-
+  // Open the add form (with the multi-image tray) from outside the panel, e.g.
+  // the Cards hero CTA. Reuses the same scan pipeline -- no second scanner.
   useImperativeHandle(ref, () => ({
     openScanner: () => {
+      setScanned(false);
+      setScanImages([]);
       setForm((current) =>
         current || { ...BLANK, statement_paid: false, _origBalance: '' }
       );
-      // Defer so the form/input are settled before opening the file picker.
-      requestAnimationFrame(triggerScan);
     },
     openAdd,
   }));
@@ -137,119 +132,58 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
     }
   };
 
-  // Scan a photo of the statement summary and pre-fill the form. Compresses the
-  // image client-side (like the receipt scanner) before sending to the vision API.
-  const handleScanStatement = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-picking the same file
-
-    if (!file) return;
-
+  // Scan one or more statement pages and pre-fill the form. All selected pages
+  // are sent as ONE logical statement ({ images: [...] }); the endpoint
+  // synthesizes a single card record. Never auto-saves.
+  const runCardScan = async () => {
+    if (scanImages.length === 0) return;
     setScanning(true);
     setScanned(false);
+    trackProductEvent('card_scan_started', { source_screen: 'cards' });
 
-    const reader = new FileReader();
+    try {
+      const resp = await fetch('/api/scanCardStatement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        body: JSON.stringify({ images: scanImages }),
+      });
+      if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
 
-    reader.onerror = () => {
+      const d = await resp.json();
+
+      setForm((prev) => {
+        const f = prev || { ...BLANK, statement_paid: false, _origBalance: '' };
+        return {
+          ...f,
+          card_name: f.card_name || d.card_name_hint || '',
+          current_balance:
+            d.current_balance !== undefined && d.current_balance !== null && d.current_balance !== 0
+              ? String(d.current_balance)
+              : f.current_balance,
+          statement_balance:
+            d.statement_balance !== undefined && d.statement_balance !== null && d.statement_balance !== 0
+              ? String(d.statement_balance)
+              : f.statement_balance,
+          minimum_payment:
+            d.minimum_payment !== undefined && d.minimum_payment !== null && d.minimum_payment !== 0
+              ? String(d.minimum_payment)
+              : f.minimum_payment,
+          apr: d.apr !== undefined && d.apr !== null ? String(d.apr) : f.apr,
+          due_day: d.due_day !== undefined && d.due_day !== null ? String(d.due_day) : f.due_day,
+          statement_close_day:
+            d.statement_close_day !== undefined && d.statement_close_day !== null
+              ? String(d.statement_close_day)
+              : f.statement_close_day,
+        };
+      });
+
+      setScanned(true);
+      trackProductEvent('card_scan_completed', { source_screen: 'cards' });
+    } catch (err) {
+      alert('Could not read the statement — enter the numbers manually.\n\n' + (err?.message || err));
+    } finally {
       setScanning(false);
-      alert('Could not read that file.');
-    };
-
-    reader.onloadend = () => {
-      const img = new Image();
-
-      img.onerror = () => {
-        setScanning(false);
-        alert('Could not load that image.');
-      };
-
-      img.onload = async () => {
-        try {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 1200;
-          const scale = Math.min(1, MAX_WIDTH / img.width);
-
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-
-          canvas
-            .getContext('2d')
-            .drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          const base64Image = canvas.toDataURL('image/jpeg', 0.7);
-
-          const resp = await fetch('/api/scanCardStatement', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(await authHeader()),
-            },
-            body: JSON.stringify({
-              image: base64Image,
-            }),
-          });
-
-          if (!resp.ok) {
-            throw new Error(resp.statusText || 'scan failed');
-          }
-
-          const d = await resp.json();
-
-          setForm((prev) => {
-            const f = prev || { ...BLANK, statement_paid: false, _origBalance: '' };
-            return {
-            ...f,
-            card_name: f.card_name || d.card_name_hint || '',
-            current_balance:
-              d.current_balance !== undefined &&
-              d.current_balance !== null &&
-              d.current_balance !== 0
-                ? String(d.current_balance)
-                : f.current_balance,
-            statement_balance:
-              d.statement_balance !== undefined &&
-              d.statement_balance !== null &&
-              d.statement_balance !== 0
-                ? String(d.statement_balance)
-                : f.statement_balance,
-            minimum_payment:
-              d.minimum_payment !== undefined &&
-              d.minimum_payment !== null &&
-              d.minimum_payment !== 0
-                ? String(d.minimum_payment)
-                : f.minimum_payment,
-            apr:
-              d.apr !== undefined && d.apr !== null
-                ? String(d.apr)
-                : f.apr,
-            due_day:
-              d.due_day !== undefined && d.due_day !== null
-                ? String(d.due_day)
-                : f.due_day,
-            statement_close_day:
-              d.statement_close_day !== undefined &&
-              d.statement_close_day !== null
-                ? String(d.statement_close_day)
-                : f.statement_close_day,
-            };
-          });
-
-          setScanned(true);
-          trackProductEvent('card_scan_completed', { source_screen: 'cards' });
-        } catch (err) {
-          alert(
-            'Could not read the statement photo — enter the numbers manually.\n\n' +
-              (err?.message || err)
-          );
-        } finally {
-          setScanning(false);
-        }
-      };
-
-      img.src = reader.result;
-    };
-
-    reader.readAsDataURL(file);
+    }
   };
 
   const inputCls =
@@ -263,17 +197,6 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
 
   return (
     <div className="bg-card rounded-xl border border-border shadow-sm mb-8 overflow-hidden">
-      {/* Always-mounted file input so the scanner can be triggered from the
-          in-form button OR externally (Cards hero) via the imperative handle. */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleScanStatement}
-        disabled={scanning}
-        className="hidden"
-      />
-
       <div className="px-5 py-3 border-b border-border flex items-center justify-between">
         <div className="font-bold text-foreground">
           Credit cards — financing guard
@@ -291,28 +214,18 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
 
       {form && (
         <div className="p-5 bg-blue-50/40 dark:bg-blue-950/10 border-b border-border">
-          {/* SCAN STATEMENT */}
+          {/* SCAN STATEMENT (multi-page) */}
           <div className="mb-4">
-            <button
-              type="button"
-              onClick={triggerScan}
-              disabled={scanning}
-              className={`inline-flex items-center gap-2 px-4 py-3 rounded-md text-sm font-semibold transition-colors min-h-[44px] ${
-                scanning
-                  ? 'bg-muted text-muted-foreground cursor-wait'
-                  : 'bg-card border border-blue-200 text-blue-700 hover:bg-blue-50'
-              }`}
-            >
-              <Icon name="Camera" size={16} />
-
-              {scanning
-                ? 'Reading statement…'
-                : 'Scan or upload statement'}
-            </button>
-
+            <ImageScanTray
+              images={scanImages}
+              setImages={setScanImages}
+              onScan={runCardScan}
+              scanning={scanning}
+              addLabel="Scan or upload statement"
+            />
             <p className="text-[11px] text-muted-foreground mt-1">
-              Take a photo or pick a screenshot of the statement&apos;s summary
-              box — we&apos;ll fill the numbers below for you to confirm.
+              Add the statement summary — you can add multiple pages. We&apos;ll fill
+              the numbers below for you to confirm before saving.
             </p>
           </div>
 

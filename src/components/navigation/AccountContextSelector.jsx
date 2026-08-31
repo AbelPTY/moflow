@@ -10,8 +10,11 @@ const AccountContextSelector = ({ selectedAccountIds, onChange }) => {
   // Fetch Accounts on Mount
   useEffect(() => {
     const fetchAccounts = async () => {
-      const { data } = await supabase.from('accounts').select('id, name, type');
-      if (data) setAccounts(data);
+      const { data } = await supabase
+        .from('accounts')
+        .select('id, account_name, account_type')
+        .order('created_at', { ascending: true });
+      if (data) setAccounts(data.map((a) => ({ id: a.id, name: a.account_name, type: a.account_type })));
     };
     fetchAccounts();
   }, []);
