@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import CreditCardsPanel from '../../components/CreditCardsPanel';
 import Icon from '../../components/AppIcon';
+import LoansPanel from '../../components/LoansPanel';
 import useCreditCards from '../../hooks/useCreditCards';
 import useOnboarding from '../../hooks/useOnboarding';
 import { trackProductEvent } from '../../lib/analytics';
@@ -36,6 +37,14 @@ const Cards = () => {
   // "Check my Flow" or "Not now"), it is permanently dismissed, so returning
   // users saving more cards don't keep getting nudged.
   const [showFlowBridge, setShowFlowBridge] = useState(false);
+
+  // In-page debt-management sections. Default to Credit Cards; Loans lives here
+  // too (no new route, no new primary nav tab).
+  const [activeTab, setActiveTab] = useState('cards');
+  const switchTab = (tab) => {
+    setActiveTab(tab);
+    if (tab === 'loans') trackProductEvent('loan_section_opened', { source_screen: 'cards' });
+  };
 
   const handleCardSaved = () => {
     trackProductEvent('card_saved', { source_screen: 'cards' });
@@ -120,6 +129,30 @@ const Cards = () => {
           </div>
         )}
 
+        {/* SECTION SELECTOR: Credit Cards | Loans */}
+        <div className="mb-6 inline-flex rounded-xl border border-border bg-muted/40 p-1">
+          <button
+            onClick={() => switchTab('cards')}
+            className={`px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-bold transition-colors ${
+              activeTab === 'cards' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Credit Cards
+          </button>
+          <button
+            onClick={() => switchTab('loans')}
+            className={`px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-bold transition-colors ${
+              activeTab === 'loans' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Loans
+          </button>
+        </div>
+
+        {activeTab === 'loans' && <LoansPanel />}
+
+        {activeTab === 'cards' && (
+          <>
         {/* HERO */}
         {loading ? (
           <div className="mb-6 h-40 rounded-2xl border border-border bg-card animate-pulse" />
@@ -158,6 +191,8 @@ const Cards = () => {
             statement in full — calculated from each card&apos;s APR when known (about 24% assumed otherwise), credited when
             you mark a statement paid in full. It is an estimate, not an audited amount of money saved.
           </p>
+        )}
+          </>
         )}
       </div>
     </div>
