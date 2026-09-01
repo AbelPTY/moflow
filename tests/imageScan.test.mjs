@@ -50,6 +50,36 @@ try {
   // Empty body -> no parts (endpoint returns 400).
   ok('empty body -> no parts', buildImageParts({}).length === 0);
   ok('non-string entries ignored', buildImageParts({ images: [null, 123, '', 'ok'] }).length === 1);
+
+  // ---- BulkUpload Photo mode: combined statement, one account, overlap dedupe ----
+  const { flagDuplicateActivityRows } = await vite.ssrLoadModule('/src/lib/dedupeTransactions.js');
+  const { prepareImportAccountAssignment } = await vite.ssrLoadModule('/src/lib/accountOptions.js');
+
+  // E (payload): 3 screenshots are sent as ONE scan request (a single parts list),
+  // not one request per screenshot.
+  const threeShots = buildImageParts({ images: ['data:image/jpeg;base64,S1', 'S2', 'S3'] });
+  ok('E: 3 screenshots -> one combined scan payload', threeShots.length === 3);
+
+  // Simulated combined parse from 3 overlapping screenshots (Starbucks repeats).
+  const D = '2026-08-15';
+  const combinedParsed = [
+    { transaction_date: D, description: 'Starbucks', merchant_display: 'Starbucks', amount: -9.5 },
+    { transaction_date: D, description: 'Uber', merchant_display: 'Uber', amount: -12 },
+    { transaction_date: D, description: 'Starbucks', merchant_display: 'Starbucks', amount: -9.5 }, // overlap
+  ];
+
+  // G: one destination account applies to the WHOLE combined statement.
+  const assigned = prepareImportAccountAssignment(combinedParsed, 'BG Checking');
+  ok('G: one destination applied to combined statement', assigned.every((r) => r.account_name === 'BG Checking'));
+
+  // F: combined rows run through account-aware within-batch dedupe -- the repeated
+  // Starbucks from the overlapping screenshot is blocked; distinct rows survive.
+  const flagged = flagDuplicateActivityRows(
+    assigned.map((r) => ({ date: r.transaction_date, description: r.description, amount: r.amount, account: r.account_name })),
+    []
+  );
+  ok('F: overlapping screenshot row is blocked', flagged[2].willFailSave === true);
+  ok('F: distinct rows are not blocked', flagged[0].willFailSave === false && flagged[1].willFailSave === false);
 } finally {
   await vite.close();
 }

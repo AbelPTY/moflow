@@ -6,6 +6,7 @@ import rulesData from '../rules/merchant_rules.json';
 import { classifyTransaction } from '../lib/engine/ruleMatcher';
 import useUserMerchantRules from '../hooks/useUserMerchantRules';
 import AccountSelect from './AccountSelect';
+import ImageScanTray from './ImageScanTray';
 import { analyzeDetectedImportAccounts, prepareImportAccountAssignment, normalizeAccountName } from '../lib/accountOptions';
 import { authHeader } from '../lib/apiClient';
 
@@ -264,6 +265,9 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
   const [rawText, setRawText] = useState('');
   const [loading, setLoading] = useState(false);
   const [parsedTransactions, setParsedTransactions] = useState([]);
+  // Photo/Screenshot mode: multiple images scanned as ONE statement (shared
+  // ImageScanTray + /api/scanReceipt images[], same receipt mode as before).
+  const [images, setImages] = useState([]);
 
   // When a parse yields exactly ONE detected account, prefill it as the
   // destination (a suggestion) and clear the per-row override so the user's
@@ -776,32 +780,31 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
     }
   };
 
-  // 4. Manejo de Fotos (Reincorporado)
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // 4. Manejo de Fotos -- multi-image parity with Flow's scanners. The selected
+  // screenshots/photos (up to MAX_SCAN_IMAGES, enforced by ImageScanTray) are
+  // sent as ONE receipt-mode scan (images[]), so multi-page receipts/vouchers
+  // or a statement split across screenshots parse into ONE combined list. One
+  // image is unchanged (buildImageParts still accepts a single-element array).
+  // Overlapping rows across screenshots are caught by the account-aware
+  // within-batch duplicate logic in flagPossibleDuplicates.
+  const scanImages = async () => {
+    if (images.length === 0) return;
     setLoading(true);
     try {
-      const base64Image = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = error => reject(error);
-      });
       const response = await fetch('/api/scanReceipt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
-        body: JSON.stringify({ image: base64Image })
+        body: JSON.stringify({ images })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || 'Failed to parse Image');
-      // scanReceipt now always returns an array -- one item for a simple
-      // receipt, multiple for a voucher with several line items (e.g. a
-      // Cooperativa payment slip covering insurance, a loan payment, etc.)
+      // scanReceipt returns an array -- one item for a simple receipt, multiple
+      // for a voucher/statement with several line items across the images.
       const items = Array.isArray(data) ? data : [data];
       const normalized = items.map(normalizeParsedTransaction).filter((t) => t.description && !Number.isNaN(Number(t.amount)));
-      if (normalized.length === 0) throw new Error('No transactions could be read from this image.');
+      if (normalized.length === 0) throw new Error('No transactions could be read from these images.');
       setParsedTransactions(await flagPossibleDuplicates(await applyLearnedCategorization(applyStaticRules(normalized))));
+      setImages([]);
     } catch (error) { alert(`Image parsing failed: ${error.message}`); }
     finally { setLoading(false); }
   };
@@ -920,8 +923,17 @@ return (
         )}
 
         {parsedTransactions.length === 0 && activeTab === 'image' && (
-          <div style={{ textAlign: 'center', padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
-            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> Upload Receipt Photo <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} /> </label>
+          <div style={{ padding: '16px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--color-muted-foreground)', marginBottom: '12px' }}>
+              Add one photo, or several screenshots of the same receipt/statement — they're scanned together as one import.
+            </p>
+            <ImageScanTray
+              images={images}
+              setImages={setImages}
+              onScan={scanImages}
+              scanning={loading}
+              addLabel="Add photos / screenshots"
+            />
           </div>
         )}
 
