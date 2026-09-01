@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { authHeader } from '../lib/apiClient';
-import useAccounts from '../hooks/useAccounts';
-import useLegacyAccountNames from '../hooks/useLegacyAccountNames';
-import { mergeAccountOptions } from '../lib/accountOptions';
+import AccountSelect from './AccountSelect';
 
 // Controlled component: the parent (QuickActionsFab) owns open/close state so
 // this action can share a single "+" speed-dial with Bulk Upload.
@@ -11,11 +9,8 @@ export default function AddTransaction({ onTransactionAdded, open = false, onClo
   const close = () => { if (onClose) onClose(); };
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
-  // Manual entry uses the user's first-class accounts + legacy transaction
-  // account names (no personal hardcoded list).
-  const { accounts } = useAccounts();
-  const legacyNames = useLegacyAccountNames();
-  const accountOptions = mergeAccountOptions(accounts, legacyNames).map((o) => o.name);
+  // Manual entry uses the shared AccountSelect (first-class accounts + legacy
+  // names + Cash/Manual + inline "+ Add new account"); no personal hardcoded list.
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     merchant: '',
@@ -141,10 +136,9 @@ export default function AddTransaction({ onTransactionAdded, open = false, onClo
           <input type="text" name="merchant" placeholder="Merchant" value={formData.merchant} onChange={handleChange} required style={{width: '100%', padding: '10px', marginBottom: '10px'}} />
           <input type="number" name="amount" placeholder="Amount" value={formData.amount} onChange={handleChange} step="0.01" required style={{width: '100%', padding: '10px', marginBottom: '10px'}} />
           <input type="text" name="category" placeholder="Category" value={formData.category} onChange={handleChange} required style={{width: '100%', padding: '10px', marginBottom: '10px'}} />
-          <select name="account_name" value={formData.account_name} onChange={handleChange} style={{width: '100%', padding: '10px', marginBottom: '10px'}}>
-            {accountOptions.map((name) => <option key={name} value={name}>{name}</option>)}
-            <option value="Cash/Manual">Cash/Manual</option>
-          </select>
+          <div style={{ marginBottom: '10px' }}>
+            <AccountSelect value={formData.account_name} onChange={(name) => setFormData((f) => ({ ...f, account_name: name }))} />
+          </div>
           <div style={{display: 'flex', gap: '10px'}}>
             <button type="button" onClick={close} style={{flex: 1, padding: '10px', background: 'var(--color-muted)', border: 'none', borderRadius: '5px'}}>Cancel</button>
             <button type="submit" disabled={loading} style={{flex: 1, padding: '10px', background: '#007AFF', color: 'white', border: 'none', borderRadius: '5px'}}>{loading ? 'Saving...' : 'Save'}</button>

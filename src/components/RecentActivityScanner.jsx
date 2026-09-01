@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './AppIcon';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -153,24 +153,48 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
 
   const runDuplicateFlags = async (mapped) => {
     // Query the user's existing rows in the scanned date range and flag likely
-    // duplicates using the shared strategy. Non-blocking: on any error we just
-    // proceed with nothing flagged.
+    // duplicates using the shared strategy. Duplicate identity is scoped to the
+    // chosen destination account (effectiveAccount), mirroring the account-aware
+    // DB unique indexes -- an identical-looking transaction that lives in a
+    // DIFFERENT account is importable, while a true duplicate in the SAME
+    // account is flagged. Non-blocking: on any error we proceed with nothing
+    // flagged.
     try {
       const dates = mapped.map((r) => r.date).filter(Boolean).sort();
-      if (!user?.id || dates.length === 0) return mapped.map((r) => ({ ...r }));
+      const withAccount = mapped.map((r) => ({ ...r, account: effectiveAccount }));
+      if (!user?.id || dates.length === 0) return withAccount;
 
       const { data: existing } = await supabase
         .from('transactions')
-        .select('date, amount, bank_reference, description, merchant')
+        .select('date, amount, bank_reference, description, merchant, account_name, source_account')
         .eq('user_id', user.id)
         .gte('date', dates[0])
         .lte('date', `${dates[dates.length - 1]}T23:59:59`);
 
-      return flagDuplicateActivityRows(mapped, existing || []);
+      return flagDuplicateActivityRows(withAccount, existing || []);
     } catch {
-      return mapped.map((r) => ({ ...r }));
+      return mapped.map((r) => ({ ...r, account: effectiveAccount }));
     }
   };
+
+  // The destination account is chosen AFTER scanning, and it is part of the
+  // duplicate identity, so re-flag the scanned rows whenever it changes. Keyed
+  // on effectiveAccount only (a ref holds the latest rows) so this never loops
+  // on its own setRows. Preserves each row's raw fields and re-derives include.
+  const latestRowsRef = useRef(null);
+  latestRowsRef.current = rows;
+  useEffect(() => {
+    const current = latestRowsRef.current;
+    if (!current || current.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const stripped = current.map(({ isDuplicate, duplicateNote, willFailSave, include, ...rest }) => rest);
+      const reflagged = await runDuplicateFlags(stripped);
+      if (!cancelled) setRows(reflagged.map((r) => ({ ...r, include: !r.isDuplicate })));
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveAccount]);
 
   const updateRow = (id, patch) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));

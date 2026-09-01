@@ -1,13 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase'; // Asegurate de que esta ruta sea la correcta en tu proyecto
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import rulesData from '../rules/merchant_rules.json';
 import { classifyTransaction } from '../lib/engine/ruleMatcher';
 import useUserMerchantRules from '../hooks/useUserMerchantRules';
-import useAccounts from '../hooks/useAccounts';
-import useLegacyAccountNames from '../hooks/useLegacyAccountNames';
-import { mergeAccountOptions } from '../lib/accountOptions';
+import AccountSelect from './AccountSelect';
+import { analyzeDetectedImportAccounts, prepareImportAccountAssignment, normalizeAccountName } from '../lib/accountOptions';
 import { authHeader } from '../lib/apiClient';
 
 // --- UTILIDADES ---
@@ -262,12 +261,45 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
   const closeModal = () => { if (onClose) onClose(); };
   const [activeTab, setActiveTab] = useState('text');
   const [selectedAccount, setSelectedAccount] = useState('Cash/Manual');
-  const { accounts: userAccounts } = useAccounts();
-  const legacyAccountNames = useLegacyAccountNames();
-  const accountOptions = mergeAccountOptions(userAccounts, legacyAccountNames).map((o) => o.name);
   const [rawText, setRawText] = useState('');
   const [loading, setLoading] = useState(false);
   const [parsedTransactions, setParsedTransactions] = useState([]);
+
+  // When a parse yields exactly ONE detected account, prefill it as the
+  // destination (a suggestion) and clear the per-row override so the user's
+  // explicit selection controls the save. Genuine multi-account batches keep
+  // their per-row accounts. Runs once per parse session.
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (parsedTransactions.length === 0) { prefilledRef.current = false; return; }
+    if (prefilledRef.current) return;
+    prefilledRef.current = true;
+    const { mode, suggestedAccount } = analyzeDetectedImportAccounts(parsedTransactions);
+    if (mode === 'single' && suggestedAccount) {
+      setSelectedAccount(suggestedAccount);
+      setParsedTransactions((prev) => prev.map((r) => ({ ...r, account_name: '', source_account: '' })));
+    }
+  }, [parsedTransactions]);
+
+  // Duplicate identity is scoped to the destination account, so when the user
+  // changes the destination (or the prefill above sets it) the preview's
+  // duplicate flags must be recomputed against that final account. Keyed on
+  // selectedAccount only (a ref holds the latest rows) so re-flagging never
+  // loops on its own setParsedTransactions.
+  const latestParsedRef = useRef([]);
+  latestParsedRef.current = parsedTransactions;
+  useEffect(() => {
+    const rows = latestParsedRef.current;
+    if (!rows || rows.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const stripped = rows.map(({ isDuplicate, duplicateNote, willFailSave, ...rest }) => rest);
+      const reflagged = await flagPossibleDuplicates(stripped);
+      if (!cancelled) setParsedTransactions(reflagged);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccount]);
 
   // Applies your actual merchant_rules.json (the same rules that categorize
   // things on the main transaction list) at upload time. This is checked
@@ -396,39 +428,55 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
       const minDate = dates.reduce((a, b) => (a < b ? a : b));
       const maxDate = dates.reduce((a, b) => (a > b ? a : b));
 
-      // Not scoped by account_name -- the real DB constraint isn't either
+      // Duplicate identity is scoped to the FINAL destination account, mirroring
+      // the account-aware DB unique indexes. Resolve each row's destination the
+      // same way the save does (prepareImportAccountAssignment): 'none'/'single'
+      // -> the user's selectedAccount; 'multi' -> the per-row detected account.
+      // This must use the final destination, NOT a stale parser hint, so the
+      // same-looking transaction imported into a DIFFERENT account is allowed.
+      const assigned = prepareImportAccountAssignment(transactions, selectedAccount);
+      const acctKeyOfAssigned = (i) => normalizeAccountName(assigned[i]?.account_name || assigned[i]?.source_account || '');
+
+      // Account is part of identity, so only pull existing rows for the accounts
+      // this batch actually targets (still bounded by the date range).
+      const targetAccts = new Set(assigned.map((_, i) => acctKeyOfAssigned(i)));
+
       const { data: existing, error } = await supabase
         .from('transactions')
-        .select('date, amount, bank_reference, description, merchant')
+        .select('date, amount, bank_reference, description, merchant, account_name, source_account')
         .eq('user_id', user.id)
         .gte('date', minDate)
         .lte('date', maxDate);
 
-      const existingWithRef = new Set();    // date|merchant|amount|reference -- for rows that HAVE a reference
-      const existingWithoutRef = new Set(); // date|merchant|amount -- for rows with NO reference
-      const existingByDateAmount = new Map();
+      const existingWithRef = new Set();    // acct|date|merchant|amount|reference
+      const existingWithoutRef = new Set(); // acct|date|merchant|amount
+      const existingByAcctDateAmount = new Map();
 
       if (!error && existing) {
         for (const row of existing) {
+          const acctKey = normalizeAccountName(row.account_name || row.source_account || '');
+          // Skip history for accounts this batch never touches.
+          if (!targetAccts.has(acctKey)) continue;
           const dateKey = String(row.date || '').slice(0, 10);
           const amountKey = Number(row.amount).toFixed(2);
           const merchantKey = String(row.merchant || '').trim().toLowerCase();
           const refKey = row.bank_reference ? String(row.bank_reference).trim().toLowerCase() : '';
 
           if (refKey) {
-            existingWithRef.add(`${dateKey}|${merchantKey}|${amountKey}|${refKey}`);
+            existingWithRef.add(`${acctKey}|${dateKey}|${merchantKey}|${amountKey}|${refKey}`);
           } else {
-            existingWithoutRef.add(`${dateKey}|${merchantKey}|${amountKey}`);
+            existingWithoutRef.add(`${acctKey}|${dateKey}|${merchantKey}|${amountKey}`);
           }
 
-          const key = `${dateKey}|${amountKey}`;
-          if (!existingByDateAmount.has(key)) existingByDateAmount.set(key, []);
-          existingByDateAmount.get(key).push(row);
+          const key = `${acctKey}|${dateKey}|${amountKey}`;
+          if (!existingByAcctDateAmount.has(key)) existingByAcctDateAmount.set(key, []);
+          existingByAcctDateAmount.get(key).push(row);
         }
       }
 
-      // First pass: check against saved history
-      const withHistoryFlags = transactions.map((t) => {
+      // First pass: check against saved history (scoped to the row's destination).
+      const withHistoryFlags = transactions.map((t, i) => {
+        const acctKey = acctKeyOfAssigned(i);
         const dateKey = t.transaction_date ? t.transaction_date.slice(0, 10) : '';
         const amountKey = Number(t.amount).toFixed(2);
         const merchantKey = (t.merchant_display || '').trim().toLowerCase();
@@ -436,18 +484,18 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
 
         // Hard match: mirrors exactly which of the two DB partial indexes applies
         const hardMatch = refKey
-          ? existingWithRef.has(`${dateKey}|${merchantKey}|${amountKey}|${refKey}`)
-          : existingWithoutRef.has(`${dateKey}|${merchantKey}|${amountKey}`);
+          ? existingWithRef.has(`${acctKey}|${dateKey}|${merchantKey}|${amountKey}|${refKey}`)
+          : existingWithoutRef.has(`${acctKey}|${dateKey}|${merchantKey}|${amountKey}`);
 
         if (hardMatch) {
           return { ...t, isDuplicate: true, duplicateNote: 'Exact match already saved -- will fail to save', willFailSave: true };
         }
 
-        // Soft match: same date+amount and a similar description/merchant,
+        // Soft match: same account+date+amount and a similar description/merchant,
         // but NOT an exact reference-aware match above -- worth a look, but
         // won't actually fail on save, so it's flagged for review only.
-        const key = `${dateKey}|${amountKey}`;
-        const candidates = existingByDateAmount.get(key);
+        const key = `${acctKey}|${dateKey}|${amountKey}`;
+        const candidates = existingByAcctDateAmount.get(key);
         if (candidates && candidates.length > 0) {
           const descNorm = t.description.trim().toLowerCase();
           const looksSame = candidates.some((c) => {
@@ -464,31 +512,33 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
         return { ...t, isDuplicate: false, duplicateNote: '', willFailSave: false };
       });
 
-      // Second pass: check for collisions WITHIN this batch itself. Same
-      // reference-aware logic as above -- rows WITH a reference only collide
-      // if date+merchant+amount+reference ALL match (so three drinks at the
-      // same bar, same price, same day, are correctly left alone as long as
-      // each has its own reference number). Rows with NO reference use the
-      // stricter date+merchant+amount-only check.
+      // Second pass: collisions WITHIN this batch itself, scoped by destination
+      // account. Same reference-aware logic as above -- rows WITH a reference
+      // only collide if account+date+merchant+amount+reference ALL match (so
+      // three drinks at the same bar, same price, same day, are correctly left
+      // alone as long as each has its own reference number). Rows with NO
+      // reference use the stricter account+date+merchant+amount-only check.
+      // Identical rows headed to DIFFERENT accounts stay independent.
       const seenWithRef = new Set();
       const seenWithoutRef = new Set();
-      return withHistoryFlags.map((t) => {
+      return withHistoryFlags.map((t, i) => {
         if (t.willFailSave) return t; // already flagged as a definite history collision
+        const acctKey = acctKeyOfAssigned(i);
         const dateKey = t.transaction_date ? t.transaction_date.slice(0, 10) : '';
         const amountKey = Number(t.amount).toFixed(2);
         const merchantKey = (t.merchant_display || '').trim().toLowerCase();
         const refKey = t.reference ? t.reference.trim().toLowerCase() : '';
 
         if (refKey) {
-          const key = `${dateKey}|${merchantKey}|${amountKey}|${refKey}`;
+          const key = `${acctKey}|${dateKey}|${merchantKey}|${amountKey}|${refKey}`;
           if (seenWithRef.has(key)) {
-            return { ...t, isDuplicate: true, duplicateNote: 'Same date, merchant, amount & reference as another row in this batch -- only one can be saved', willFailSave: true };
+            return { ...t, isDuplicate: true, duplicateNote: 'Same account, date, merchant, amount & reference as another row in this batch -- only one can be saved', willFailSave: true };
           }
           seenWithRef.add(key);
         } else {
-          const key = `${dateKey}|${merchantKey}|${amountKey}`;
+          const key = `${acctKey}|${dateKey}|${merchantKey}|${amountKey}`;
           if (seenWithoutRef.has(key)) {
-            return { ...t, isDuplicate: true, duplicateNote: 'Same date, merchant & amount as another row in this batch (no reference number to tell them apart) -- only one can be saved', willFailSave: true };
+            return { ...t, isDuplicate: true, duplicateNote: 'Same account, date, merchant & amount as another row in this batch (no reference number to tell them apart) -- only one can be saved', willFailSave: true };
           }
           seenWithoutRef.add(key);
         }
@@ -771,7 +821,12 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
         return;
       }
 
-      const formattedData = toSave.map((t) => ({
+      // Assign the destination account with the single centralized rule:
+      // 'none'/'single' -> the explicit selectedAccount controls every row;
+      // 'multi' -> preserve genuinely distinct per-row accounts.
+      const assigned = prepareImportAccountAssignment(toSave, selectedAccount);
+
+      const formattedData = assigned.map((t) => ({
         user_id: user.id,
         date: t.transaction_date || new Date().toISOString(),
         description: t.description,
@@ -780,8 +835,8 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
         amount: t.amount,
         category: t.category_guess || 'Uncategorized',
         budget_bucket: t.bucket_guess || 'Unsorted',
-        account_name: t.account_name || selectedAccount,
-        source_account: t.source_account || t.account_name || selectedAccount,
+        account_name: t.account_name,
+        source_account: t.source_account,
         bank_reference: t.reference || null,
         notes: `Imported via bulk upload`
       }));
@@ -824,25 +879,15 @@ return (
           <button onClick={closeModal} style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer' }}>X</button>
         </div>
 
-        {/* SELECTOR DE CUENTA INYECTADO */}
+        {/* IMPORT INTO ACCOUNT: select an existing account, Cash/Manual, or
+            create/name the account this statement belongs to (inline). */}
         {parsedTransactions.length === 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Select Account / Card:</label>
-            <select
-              value={selectedAccount}
-              onChange={(e) => setSelectedAccount(e.target.value)}
-              style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid var(--color-border)' }}
-            >
-              {accountOptions.map((name) => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-              <option value="Cash/Manual">Cash/Manual</option>
-            </select>
-            {accountOptions.length === 0 && (
-              <p style={{ fontSize: '12px', color: 'var(--color-muted-foreground)', marginTop: '4px' }}>
-                Add your accounts in More → Accounts to see them here.
-              </p>
-            )}
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Import into account</label>
+            <AccountSelect value={selectedAccount} onChange={setSelectedAccount} />
+            <p style={{ fontSize: '12px', color: 'var(--color-muted-foreground)', marginTop: '6px' }}>
+              All rows from this statement import into the selected account. Manage accounts in More → Accounts.
+            </p>
           </div>
         )}
 

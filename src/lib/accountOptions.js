@@ -70,6 +70,59 @@ export const mergeAccountOptions = (accounts = [], legacyNames = []) => {
   return out;
 };
 
+// Apply a chosen destination account to imported statement rows (single/normal
+// import mode): when `accountName` is set it OVERWRITES account_name /
+// source_account on EVERY row -- the user's explicit destination wins over any
+// single parser-detected value. When `accountName` is empty, rows keep whatever
+// they already carry. Identity is the account NAME, never type/institution.
+// Amounts, sign, and category are untouched.
+export const applyImportAccount = (rows = [], accountName) => {
+  const name = accountName ? String(accountName) : '';
+  return (rows || []).map((r) => ({
+    ...r,
+    account_name: name || r.account_name || '',
+    source_account: name || r.source_account || r.account_name || '',
+  }));
+};
+
+// Classify the account identity detected across a parsed import batch.
+//   mode: 'none'   -> no per-row account detected
+//         'single' -> exactly one distinct detected account (a suggestion)
+//         'multi'  -> two+ distinct detected accounts (genuine multi-account,
+//                     e.g. a Cooperativa voucher) -- keep per-row identities
+export const analyzeDetectedImportAccounts = (rows = []) => {
+  const names = [];
+  const seen = new Set();
+  (rows || []).forEach((r) => {
+    const n = String(r?.account_name || '').trim();
+    if (!n) return;
+    const key = normalizeAccountName(n);
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(n);
+  });
+  const mode = names.length === 0 ? 'none' : names.length === 1 ? 'single' : 'multi';
+  return { mode, detectedAccountNames: names, suggestedAccount: mode === 'single' ? names[0] : null };
+};
+
+// The single production rule for assigning a destination account to imported
+// rows (used by BulkUpload and the tests, so behavior never diverges):
+//   * 'none' / 'single': the user's explicit selectedAccount controls EVERY row
+//     (a single parser-detected value is only a prefill and is overridden).
+//   * 'multi': preserve each row's genuinely distinct detected account, falling
+//     back to selectedAccount only where a row has none.
+export const prepareImportAccountAssignment = (rows = [], selectedAccount) => {
+  const { mode } = analyzeDetectedImportAccounts(rows);
+  if (mode === 'multi') {
+    return (rows || []).map((r) => ({
+      ...r,
+      account_name: r.account_name || selectedAccount,
+      source_account: r.source_account || r.account_name || selectedAccount,
+    }));
+  }
+  return applyImportAccount(rows, selectedAccount);
+};
+
 // A balance is "known" only when it is a finite number (NOT null/''/undefined).
 // A null/unset balance is never treated as 0.
 export const hasKnownBalance = (account) => {
