@@ -5,6 +5,7 @@ import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import UpcomingPaymentsCalendar from '../../components/UpcomingPaymentsCalendar';
 import FlowLiteSetup from './FlowLiteSetup';
 import ExtraIncomePanel from './ExtraIncomePanel';
+import CashAccountsPanel from './CashAccountsPanel';
 import BalanceScanner from '../../components/BalanceScanner';
 import Icon from '../../components/AppIcon';
 import useOnboarding from '../../hooks/useOnboarding';
@@ -348,6 +349,8 @@ const CashFlow = () => {
   // the existing setCash (cashflow_available_cash) — never auto-overwritten.
   const [showBalanceScanner, setShowBalanceScanner] = useState(false);
   const [balanceApplied, setBalanceApplied] = useState(false);
+  // Bumped when account balances are persisted, to refresh the Cash accounts panel.
+  const [accountsRefreshKey, setAccountsRefreshKey] = useState(0);
 
   // Look-ahead: 'preset' (7/14/30) or 'custom' (exact end date). windowDays stays
   // the single horizon the engine uses; custom just derives it from a date. The
@@ -1419,6 +1422,14 @@ const CashFlow = () => {
           </p>
         )}
 
+        <CashAccountsPanel
+          key={accountsRefreshKey}
+          onApply={(total) => {
+            setCash(String(Math.round((Number(total) || 0) * 100) / 100));
+            setBalanceApplied(true);
+          }}
+        />
+
         <ExtraIncomePanel
           items={extraIncome}
           onAdd={addExtraIncome}
@@ -1436,6 +1447,7 @@ const CashFlow = () => {
                 setBalanceApplied(true);
                 setShowBalanceScanner(false);
               }}
+              onBalancesUpdated={() => setAccountsRefreshKey((k) => k + 1)}
               onClose={() => setShowBalanceScanner(false)}
             />
           </div>

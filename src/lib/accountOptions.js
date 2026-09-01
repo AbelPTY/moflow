@@ -70,6 +70,37 @@ export const mergeAccountOptions = (accounts = [], legacyNames = []) => {
   return out;
 };
 
+// A balance is "known" only when it is a finite number (NOT null/''/undefined).
+// A null/unset balance is never treated as 0.
+export const hasKnownBalance = (account) => {
+  const b = account?.current_balance;
+  return b !== null && b !== undefined && b !== '' && Number.isFinite(Number(b));
+};
+
+// Sum eligible cash balances grouped by currency, over ACTIVE accounts whose
+// type is checking/savings/cash and whose balance is known. Each account is
+// counted once (by its own row/id); investment/credit/loan and unknown balances
+// are excluded. Currencies are NEVER combined. Returns { USD: n, EUR: n, ... }.
+export const eligibleCashByCurrency = (accounts = []) => {
+  const byCurrency = {};
+  (accounts || []).forEach((a) => {
+    if (!a || a.is_active === false) return;
+    if (!isEligibleCashType(a.account_type)) return;
+    if (!hasKnownBalance(a)) return;
+    const cur = String(a.currency || 'USD').toUpperCase();
+    byCurrency[cur] = (byCurrency[cur] || 0) + Number(a.current_balance);
+  });
+  return byCurrency;
+};
+
+// Eligible cash total for ONE currency (default USD). Null when that currency
+// has no known eligible balances.
+export const eligibleCashTotal = (accounts = [], currency = 'USD') => {
+  const totals = eligibleCashByCurrency(accounts);
+  const key = String(currency || 'USD').toUpperCase();
+  return key in totals ? totals[key] : null;
+};
+
 // Find the first-class account whose NAME matches `name` (normalized, exact —
 // never by type). Returns the account or null. Used to preselect a scanned
 // balance row against an existing account only on a strong name match; a bare

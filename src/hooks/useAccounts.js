@@ -116,6 +116,54 @@ const useAccounts = () => {
     await load();
   };
 
+  // Normalize a balance input: '' / null / undefined -> null ("not set"),
+  // never 0. Otherwise a finite number (or null if unparseable).
+  const normBalance = (v) => {
+    if (v === '' || v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  // Update ONE account's balance, strictly by row id. Never keyed by type or
+  // name, so a savings balance can never overwrite another savings account.
+  const updateAccountBalance = async (id, { current_balance, balance_as_of } = {}) => {
+    if (!id) throw new Error('updateAccountBalance requires an account id.');
+    const payload = {
+      current_balance: normBalance(current_balance),
+      balance_as_of: balance_as_of || null,
+      balance_updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('accounts').update(payload).eq('id', id);
+    if (error) throw error;
+    await load();
+  };
+
+  // Batch balance update. Each write targets its OWN account id; a failure on
+  // one (Promise.allSettled) never affects another. Returns per-update results.
+  const updateAccountBalances = async (updates = []) => {
+    const now = new Date().toISOString();
+    const results = await Promise.allSettled(
+      (updates || [])
+        .filter((u) => u && u.id)
+        .map((u) =>
+          supabase
+            .from('accounts')
+            .update({
+              current_balance: normBalance(u.current_balance),
+              balance_as_of: u.balance_as_of || null,
+              balance_updated_at: now,
+            })
+            .eq('id', u.id)
+            .then((res) => {
+              if (res.error) throw res.error;
+              return res;
+            })
+        )
+    );
+    await load();
+    return results;
+  };
+
   const deleteAccount = async (id) => {
     const { error: deleteError } = await supabase.from('accounts').delete().eq('id', id);
     if (deleteError) throw deleteError;
@@ -132,6 +180,8 @@ const useAccounts = () => {
     addAccount,
     updateAccount,
     saveAccount,
+    updateAccountBalance,
+    updateAccountBalances,
     deactivateAccount,
     reactivateAccount,
     deleteAccount,

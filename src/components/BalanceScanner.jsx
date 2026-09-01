@@ -32,17 +32,21 @@ const isCreditRow = (row) => row.is_credit || CREDIT_TYPES.has(row.type);
 
 const MAX_IMAGES = 5;
 
-const BalanceScanner = ({ onApply, onClose }) => {
+const todayStr = () => new Date().toISOString().split('T')[0];
+
+const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
   const fileInputRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState('');
   const [rows, setRows] = useState(null); // null = nothing scanned yet
   const [images, setImages] = useState([]); // compressed dataURLs for a session
+  const [savingBalances, setSavingBalances] = useState(false);
+  const [balancesNote, setBalancesNote] = useState('');
 
   // First-class accounts the user already created, so each detected balance row
   // can be associated with a real account (e.g. "Banco General Checking") rather
   // than a bare type. Active accounts only.
-  const { accounts } = useAccounts();
+  const { accounts, updateAccountBalances, addAccount, updateAccountBalance } = useAccounts();
   const accountNames = useMemo(
     () => mergeAccountOptions(accounts, []).map((o) => o.name),
     [accounts]
@@ -147,6 +151,51 @@ const BalanceScanner = ({ onApply, onClose }) => {
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
 
   const removeRow = (id) => setRows((rs) => rs.filter((r) => r.id !== id));
+
+  // Persist each detected balance to its OWN account (by id). Rows assigned to an
+  // existing account update that account; rows with a new name create the account
+  // (the explicit button click is the confirmation) then set its balance. A
+  // savings balance can never overwrite another account -- each write is by id.
+  const persistBalances = async () => {
+    const eligibleRows = (rows || []).filter(
+      (r) => !isCreditRow(r) && isEligibleCashType(r.type) && r.name.trim() &&
+        r.balance !== '' && Number.isFinite(parseFloat(r.balance))
+    );
+    if (eligibleRows.length === 0) {
+      setBalancesNote('No eligible cash rows with a balance to save.');
+      return;
+    }
+    setSavingBalances(true);
+    setBalancesNote('');
+    try {
+      const batch = [];
+      let created = 0;
+      for (const r of eligibleRows) {
+        const match = matchAccountByName(r.name, accounts);
+        if (match) {
+          batch.push({ id: match.id, current_balance: parseFloat(r.balance), balance_as_of: todayStr() });
+        } else {
+          const acc = await addAccount({
+            account_name: r.name.trim(),
+            account_type: isEligibleCashType(r.type) ? r.type : 'other',
+            currency: r.currency,
+          });
+          if (acc?.id) {
+            await updateAccountBalance(acc.id, { current_balance: parseFloat(r.balance), balance_as_of: todayStr() });
+            created += 1;
+          }
+        }
+      }
+      if (batch.length) await updateAccountBalances(batch);
+      const total = batch.length + created;
+      setBalancesNote(`Saved ${total} account balance${total === 1 ? '' : 's'}${created ? ` (${created} new account${created === 1 ? '' : 's'})` : ''}.`);
+      if (onBalancesUpdated) onBalancesUpdated();
+    } catch (e) {
+      setBalancesNote('Some balances could not be saved: ' + (e?.message || e));
+    } finally {
+      setSavingBalances(false);
+    }
+  };
 
   // Live totals for the rows the user has chosen to count, grouped by currency.
   const totals = useMemo(() => {
@@ -389,8 +438,9 @@ const BalanceScanner = ({ onApply, onClose }) => {
           </div>
 
           {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+          {balancesNote && <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-400">{balancesNote}</p>}
 
-          {/* ACTIONS */}
+          {/* ACTIONS: (1) persist each balance to its account, (2) apply the total */}
           <div className="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
             <button
               type="button"
@@ -398,6 +448,14 @@ const BalanceScanner = ({ onApply, onClose }) => {
               className="px-4 py-3 min-h-[48px] rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted"
             >
               Cancel
+            </button>
+            <button
+              type="button"
+              onClick={persistBalances}
+              disabled={savingBalances}
+              className="px-5 py-3 min-h-[48px] rounded-xl border border-border text-sm font-bold text-foreground hover:bg-muted disabled:opacity-50"
+            >
+              {savingBalances ? 'Saving…' : 'Update account balances'}
             </button>
             <button
               type="button"

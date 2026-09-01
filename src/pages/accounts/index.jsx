@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import Icon from '../../components/AppIcon';
 import useAccounts from '../../hooks/useAccounts';
-import { ACCOUNT_TYPES, accountTypeLabel } from '../../lib/accountOptions';
+import { ACCOUNT_TYPES, accountTypeLabel, hasKnownBalance } from '../../lib/accountOptions';
 
 // Accounts management (More -> Accounts). Free-form account names; multiple
 // accounts of the same type are allowed. Each account is its own row (id), so
@@ -10,15 +10,22 @@ import { ACCOUNT_TYPES, accountTypeLabel } from '../../lib/accountOptions';
 
 const CURRENCIES = ['USD', 'PAB', 'EUR', 'GBP', 'CAD', 'MXN'];
 
+const money = (n, cur = 'USD') => {
+  const s = Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return cur === 'USD' ? `$${s}` : `${cur} ${s}`;
+};
+
 const BLANK = {
   account_name: '',
   account_type: 'checking',
   institution_name: '',
   currency: 'USD',
+  current_balance: '',
+  balance_as_of: '',
 };
 
 const AccountsManager = () => {
-  const { accounts, loading, addAccount, updateAccount, deactivateAccount, reactivateAccount, deleteAccount } = useAccounts();
+  const { accounts, loading, addAccount, updateAccount, updateAccountBalance, deactivateAccount, reactivateAccount, deleteAccount } = useAccounts();
   const [form, setForm] = useState(null); // null closed; object add/edit
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -32,6 +39,8 @@ const AccountsManager = () => {
       account_type: a.account_type ?? 'checking',
       institution_name: a.institution_name ?? '',
       currency: a.currency ?? 'USD',
+      current_balance: a.current_balance ?? '',
+      balance_as_of: a.balance_as_of ?? '',
     });
   };
   const change = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -41,8 +50,11 @@ const AccountsManager = () => {
     setBusy(true);
     setErr('');
     try {
-      if (form.id) await updateAccount(form.id, form);
-      else await addAccount(form);
+      // Identity/details first, then the balance (persisted by account id).
+      let id = form.id;
+      if (id) await updateAccount(id, form);
+      else { const created = await addAccount(form); id = created?.id; }
+      if (id) await updateAccountBalance(id, { current_balance: form.current_balance, balance_as_of: form.balance_as_of });
       setForm(null);
     } catch (e) {
       // Unique-name violation or missing table surfaces here.
@@ -111,6 +123,14 @@ const AccountsManager = () => {
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Institution (optional)</label>
                   <input className={inputCls} value={form.institution_name} onChange={(e) => change('institution_name', e.target.value)} placeholder="e.g. Banco General, UNFCU" />
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Current balance (optional)</label>
+                  <input type="number" inputMode="decimal" step="0.01" className={inputCls} value={form.current_balance} onChange={(e) => change('current_balance', e.target.value)} placeholder="Leave blank if unknown" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Balance as of (optional)</label>
+                  <input type="date" className={inputCls} value={form.balance_as_of} onChange={(e) => change('balance_as_of', e.target.value)} />
+                </div>
               </div>
               {err && <p className="text-xs text-red-600 mt-2">{err}</p>}
               <div className="flex justify-end gap-2 mt-4">
@@ -157,6 +177,13 @@ const AccountsManager = () => {
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {a.institution_name ? `${a.institution_name} · ` : ''}{a.currency || 'USD'}
+                    </div>
+                    <div className="text-sm mt-1">
+                      {hasKnownBalance(a) ? (
+                        <span className="font-bold text-foreground">{money(a.current_balance, a.currency)}</span>
+                      ) : (
+                        <span className="text-muted-foreground italic">Balance not set</span>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
