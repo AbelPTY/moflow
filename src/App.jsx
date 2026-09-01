@@ -5,6 +5,7 @@ import Routes from './Routes';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginScreen from './components/auth/LoginScreen';
 import UpdatePassword from './components/auth/UpdatePassword';
+import BrandMark from './components/BrandMark';
 
 function AppContent() {
   const { isAuthenticated, loading, recovery } = useAuth();
@@ -16,10 +17,11 @@ function AppContent() {
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background">
-        <div className="text-blue-600 font-semibold animate-pulse text-lg">
-          Loading MoFlow...
-        </div>
-        <p className="text-xs text-muted-foreground mt-2">Checking Supabase Session</p>
+        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25 animate-pulse">
+          <BrandMark size={30} />
+        </span>
+        <div className="text-foreground font-semibold text-lg mt-4">Loading MoFlow…</div>
+        <p className="text-xs text-muted-foreground mt-1">Checking your secure session</p>
       </div>
     );
   }

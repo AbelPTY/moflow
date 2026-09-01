@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import Icon from '../AppIcon';
+import AuthShell from './AuthShell';
 
 // Beta sign-up is server-enforced: the browser only submits the invite code to
 // POST /api/signup, which validates it (never the browser). VITE_SIGNUP_ENABLED
@@ -9,13 +10,14 @@ import Icon from '../AppIcon';
 const SIGNUP_ENABLED = (import.meta.env?.VITE_SIGNUP_ENABLED ?? 'true') !== 'false';
 
 const inputCls =
-  'w-full px-3 py-2.5 border border-border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500';
+  'w-full px-3 py-2.5 border border-border rounded-lg text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow';
 
 const LoginScreen = () => {
   const { signIn, resetPassword } = useAuth();
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [invite, setInvite] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -83,71 +85,79 @@ const LoginScreen = () => {
       : 'Sign in to continue.';
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-10">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-6">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center shadow-lg shadow-blue-600/20 mb-4">
-            <Icon name="DollarSign" size={28} />
+    <AuthShell footer="Private beta · Your financial data stays private — visible only to you.">
+      <div className="bg-card rounded-2xl shadow-xl border border-border p-7">
+        <h2 className="text-lg font-bold text-foreground mb-1">{title}</h2>
+        <p className="text-sm text-muted-foreground mb-5">{sub}</p>
+
+        {error && (
+          <div role="alert" className="mb-4 flex items-start gap-2 bg-red-500/10 text-red-600 dark:text-red-400 text-sm px-3 py-2.5 rounded-lg border border-red-500/20">
+            <Icon name="AlertCircle" size={16} className="mt-0.5 shrink-0" />
+            <span>{error}</span>
           </div>
-          <h1 className="text-2xl font-extrabold text-foreground">
-            Con<span className="text-blue-600">Plata</span>
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">Own your money — bills, cards, cash flow, goals.</p>
-        </div>
+        )}
+        {info && (
+          <div role="status" className="mb-4 flex items-start gap-2 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-sm px-3 py-2.5 rounded-lg border border-emerald-500/20">
+            <Icon name="CheckCircle2" size={16} className="mt-0.5 shrink-0" />
+            <span>{info}</span>
+          </div>
+        )}
 
-        <div className="bg-card rounded-2xl shadow-xl border border-border p-7">
-          <h2 className="text-lg font-bold text-foreground mb-1">{title}</h2>
-          <p className="text-sm text-muted-foreground mb-5">{sub}</p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label htmlFor="auth-email" className="block text-xs font-semibold text-muted-foreground mb-1">Email</label>
+            <input id="auth-email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" className={inputCls} />
+          </div>
 
-          {error && <div className="mb-4 bg-red-50 text-red-600 text-sm px-3 py-2.5 rounded-lg border border-red-100">{error}</div>}
-          {info && <div className="mb-4 bg-emerald-50 text-emerald-700 text-sm px-3 py-2.5 rounded-lg border border-emerald-100">{info}</div>}
-
-          <form onSubmit={handleSubmit} className="space-y-3">
+          {mode !== 'forgot' && (
             <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">Email</label>
-              <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" className={inputCls} />
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="auth-password" className="block text-xs font-semibold text-muted-foreground">Password</label>
+                {mode === 'signin' && (
+                  <button type="button" onClick={() => switchMode('forgot')} className="text-xs font-semibold text-primary hover:opacity-80">Forgot?</button>
+                )}
+              </div>
+              <div className="relative">
+                <input id="auth-password" type={showPassword ? 'text' : 'password'} required autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={`${inputCls} pr-11`} />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  className="absolute inset-y-0 right-0 flex items-center justify-center w-11 min-h-[44px] text-muted-foreground hover:text-foreground rounded-r-lg"
+                >
+                  <Icon name={showPassword ? 'EyeOff' : 'Eye'} size={18} />
+                </button>
+              </div>
             </div>
+          )}
 
-            {mode !== 'forgot' && (
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-semibold text-muted-foreground">Password</label>
-                  {mode === 'signin' && (
-                    <button type="button" onClick={() => switchMode('forgot')} className="text-xs font-semibold text-blue-600 hover:text-blue-700">Forgot?</button>
-                  )}
-                </div>
-                <input type="password" required autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className={inputCls} />
-              </div>
-            )}
+          {mode === 'signup' && (
+            <div>
+              <label htmlFor="auth-invite" className="block text-xs font-semibold text-muted-foreground mb-1">Invite code</label>
+              <input id="auth-invite" type="text" required value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="Your beta invite code" className={inputCls} />
+            </div>
+          )}
 
-            {mode === 'signup' && (
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground mb-1">Invite code</label>
-                <input type="text" required value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="Your beta invite code" className={inputCls} />
-              </div>
-            )}
+          <button type="submit" disabled={loading} className="w-full py-3 min-h-[48px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-lg shadow-primary/20">
+            {loading && <Icon name="Loader2" size={16} className="inline-block mr-2 animate-spin align-[-2px]" />}
+            {cta}
+          </button>
+        </form>
 
-            <button type="submit" disabled={loading} className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
-              {cta}
-            </button>
-          </form>
-
-          <div className="mt-5 text-center text-sm text-muted-foreground">
-            {mode === 'signin' && SIGNUP_ENABLED && (
-              <button onClick={() => switchMode('signup')} className="font-semibold text-blue-600 hover:text-blue-700">Have an invite? Create an account</button>
-            )}
-            {mode === 'signup' && (
-              <button onClick={() => switchMode('signin')} className="font-semibold text-blue-600 hover:text-blue-700">Already have an account? Sign in</button>
-            )}
-            {mode === 'forgot' && (
-              <button onClick={() => switchMode('signin')} className="font-semibold text-blue-600 hover:text-blue-700">← Back to sign in</button>
-            )}
-          </div>
+        <div className="mt-5 text-center text-sm text-muted-foreground">
+          {mode === 'signin' && SIGNUP_ENABLED && (
+            <button onClick={() => switchMode('signup')} className="font-semibold text-primary hover:opacity-80">Have an invite? Create an account</button>
+          )}
+          {mode === 'signup' && (
+            <button onClick={() => switchMode('signin')} className="font-semibold text-primary hover:opacity-80">Already have an account? Sign in</button>
+          )}
+          {mode === 'forgot' && (
+            <button onClick={() => switchMode('signin')} className="font-semibold text-primary hover:opacity-80">← Back to sign in</button>
+          )}
         </div>
-
-        <p className="text-center text-[11px] text-muted-foreground mt-5">Private beta · Your data is encrypted and only visible to you.</p>
       </div>
-    </div>
+    </AuthShell>
   );
 };
 
