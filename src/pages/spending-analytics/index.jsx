@@ -7,6 +7,7 @@ import {
 // --- IMPORTS ---
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import useTransactions from '../../hooks/useTransactions';
+import { useI18n } from '../../i18n';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 
@@ -19,6 +20,8 @@ const COLORS = {
 };
 
 const Spending = () => {
+  const { t, tCategory, formatDate } = useI18n();
+  const monthLabel = (i) => formatDate(new Date(2000, i, 1), { month: 'long' });
   // 1. STATE MANAGEMENT
   const [viewDate, setViewDate] = useState(new Date());
   const [expandedCategory, setExpandedCategory] = useState(null);
@@ -45,13 +48,12 @@ const Spending = () => {
   };
 
   // 2. DATE LOGIC
-  const { startDate, endDate, label, monthName, daysArray, effectiveDays } = useMemo(() => {
+  const { startDate, endDate, monthIndex, year, daysArray, effectiveDays } = useMemo(() => {
      const y = viewDate.getFullYear();
      const m = viewDate.getMonth();
      const start = new Date(y, m, 1).toISOString().split('T')[0];
      const end = new Date(y, m + 1, 0).toISOString().split('T')[0];
      const days = new Date(y, m + 1, 0).getDate();
-     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
      // Generate array of days for chart/heatmap
      const dArray = Array.from({length: days}, (_, i) => i + 1);
@@ -62,10 +64,14 @@ const Spending = () => {
      const isCurrentMonth = now.getFullYear() === y && now.getMonth() === m;
      const effDays = isCurrentMonth ? now.getDate() : days;
 
-     return { startDate: start, endDate: end, label: `${monthNames[m]} ${y}`, monthName: monthNames[m], daysInMonth: days, daysArray: dArray, effectiveDays: effDays };
+     return { startDate: start, endDate: end, monthIndex: m, year: y, daysInMonth: days, daysArray: dArray, effectiveDays: effDays };
   }, [viewDate]);
 
   // 3. FETCH TRANSACTIONS
+  // Derived in render so month/label follow the active locale.
+  const monthName = monthLabel(monthIndex);
+  const label = `${monthName} ${year}`;
+
   const filters = useMemo(() => ({ dateRange: 'custom', startDate, endDate }), [startDate, endDate]);
   const { transactions, loading } = useTransactions(null, { filters });
 
@@ -161,7 +167,7 @@ const Spending = () => {
   if (loading) return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8">
       <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mb-4"></div>
-      <p className="text-muted-foreground font-bold">Loading Analysis...</p>
+      <p className="text-muted-foreground font-bold">{t('spending.loading')}</p>
     </div>
   );
 
@@ -178,9 +184,9 @@ const Spending = () => {
                 <Icon name="CreditCard" size={24} />
              </div>
              <div>
-                <h1 className="text-xl font-bold text-foreground leading-tight">Spending Analysis</h1>
+                <h1 className="text-xl font-bold text-foreground leading-tight">{t('spending.title')}</h1>
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                  Viewing: <span className="text-purple-600 font-bold">{label}</span>
+                  {t('spending.viewing')} <span className="text-purple-600 font-bold">{label}</span>
                 </p>
              </div>
           </div>
@@ -193,7 +199,7 @@ const Spending = () => {
                 onChange={(e) => setSpecificDate(parseInt(e.target.value), null)}
                 className="bg-card border border-input text-foreground text-sm rounded-md p-2 font-semibold focus:ring-2 focus:ring-ring outline-none"
             >
-                {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m, i) => (<option key={m} value={i}>{m}</option>))}
+                {Array.from({ length: 12 }, (_, i) => (<option key={i} value={i}>{monthLabel(i)}</option>))}
             </select>
 
             <select
@@ -212,7 +218,7 @@ const Spending = () => {
                 onClick={() => setViewDate(new Date())}
                 className="ml-2 border-purple-200 text-purple-600 hover:bg-purple-50"
             >
-                Jump to Today
+                {t('spending.jumpToToday')}
             </Button>
           </div>
         </div>
@@ -221,33 +227,33 @@ const Spending = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-card p-6 rounded-xl shadow-elevation-2 border border-border flex flex-col justify-between">
                 <div>
-                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Total Spent</div>
+                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">{t('spending.totalSpent')}</div>
                     <div className="text-3xl font-extrabold text-foreground">
                         ${stats.total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                     </div>
                 </div>
                 <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
                     <Icon name="TrendingUp" size={16} className="text-muted-foreground"/>
-                    <span>Across all categories</span>
+                    <span>{t('spending.acrossAllCategories')}</span>
                 </div>
             </div>
             <div className="bg-card p-6 rounded-xl shadow-elevation-2 border border-border flex flex-col justify-between">
                 <div>
-                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Daily Average</div>
+                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">{t('spending.dailyAverage')}</div>
                     <div className="text-3xl font-extrabold text-blue-600">
                         ${(stats.total / effectiveDays).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                     </div>
                 </div>
                 <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
                     <Icon name="Calendar" size={16} className="text-muted-foreground"/>
-                    <span>Per day in {monthName}</span>
+                    <span>{t('spending.perDayIn', { month: monthName })}</span>
                 </div>
             </div>
             <div className="bg-card p-6 rounded-xl shadow-elevation-2 border border-border flex flex-col justify-between">
                 <div>
-                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Largest Expense</div>
+                    <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">{t('spending.largestExpense')}</div>
                     <div className="text-xl font-bold text-foreground truncate" title={stats.largest?.merchant}>
-                        {stats.largest?.merchant || "No expenses"}
+                        {stats.largest?.merchant || t('spending.noExpenses')}
                     </div>
                     <div className="text-2xl font-bold text-destructive mt-1">
                         ${stats.largest?.amount.toLocaleString('en-US', {minimumFractionDigits: 2}) || "0.00"}
@@ -263,7 +269,7 @@ const Spending = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
             {/* SPENDING COMPOSITION */}
             <div className="lg:col-span-1 bg-card p-6 rounded-xl shadow-elevation-2 border border-border">
-                <h3 className="text-lg font-bold text-foreground mb-6">Spending Breakdown</h3>
+                <h3 className="text-lg font-bold text-foreground mb-6">{t('spending.breakdown')}</h3>
                 <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
@@ -289,7 +295,7 @@ const Spending = () => {
 
             {/* DAILY SPENDING TREND (New) */}
             <div className="lg:col-span-2 bg-card p-6 rounded-xl shadow-elevation-2 border border-border">
-                 <h3 className="text-lg font-bold text-foreground mb-6">Daily Spending Trend</h3>
+                 <h3 className="text-lg font-bold text-foreground mb-6">{t('spending.dailyTrend')}</h3>
                  <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={stats.dailyData}>
@@ -297,8 +303,8 @@ const Spending = () => {
                             <XAxis dataKey="day" tick={{fontSize: 12}} />
                             <YAxis tick={{fontSize: 12}} />
                             <RechartsTooltip
-                                formatter={(value) => [`$${value.toLocaleString()}`, 'Spent']}
-                                labelFormatter={(label) => `${monthName} ${label}`}
+                                formatter={(value) => [`$${value.toLocaleString()}`, t('spending.spent')]}
+                                labelFormatter={(lbl) => `${monthName} ${lbl}`}
                                 contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                             />
                             <Bar dataKey="amount" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
@@ -310,7 +316,7 @@ const Spending = () => {
 
         {/* --- TOP CATEGORIES & MERCHANTS --- */}
         <div className="space-y-4">
-            <h3 className="text-lg font-bold text-foreground mb-2">Top 15 Categories & Merchants</h3>
+            <h3 className="text-lg font-bold text-foreground mb-2">{t('spending.topCategories')}</h3>
 
             {stats.topCategories.length > 0 ? (
                 stats.topCategories.map((cat, index) => {
@@ -331,7 +337,7 @@ const Spending = () => {
                                     </div>
                                     <div className="flex-1">
                                         <div className="flex justify-between items-center mb-1">
-                                            <span className="font-bold text-foreground">{cat.name}</span>
+                                            <span className="font-bold text-foreground">{tCategory(cat.name)}</span>
                                             <span className="font-bold text-foreground">${cat.value.toLocaleString()}</span>
                                         </div>
                                         <div className="w-full bg-muted rounded-full h-1.5">
@@ -351,7 +357,7 @@ const Spending = () => {
                             {isExpanded && (
                                 <div className="bg-muted/10 p-4 border-t border-border animate-in slide-in-from-top-2 fade-in duration-200">
                                     <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-                                        <Icon name="Store" size={14}/> Top 20 Merchants in {cat.name}
+                                        <Icon name="Store" size={14}/> {t('spending.topMerchantsIn', { category: tCategory(cat.name) })}
                                     </h4>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2">
                                         {cat.merchants.map((merchant, i) => (
@@ -375,7 +381,7 @@ const Spending = () => {
                 })
             ) : (
                 <div className="bg-card p-8 rounded-xl shadow-sm border border-border text-center text-muted-foreground italic">
-                    No spending data found for {label}.
+                    {t('spending.noData', { label })}
                 </div>
             )}
         </div>

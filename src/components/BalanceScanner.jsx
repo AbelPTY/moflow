@@ -3,6 +3,7 @@ import Icon from './AppIcon';
 import { authHeader } from '../lib/apiClient';
 import { dedupeDetectedAccounts, isEligibleCashType, mergeAccountOptions, matchAccountByName } from '../lib/accountOptions';
 import useAccounts from '../hooks/useAccounts';
+import { useI18n } from '../i18n';
 
 // Reusable balance-screenshot scanner. Takes a photo/upload of a banking-app
 // account summary, calls /api/scanAccountBalances, and lets the user review and
@@ -35,6 +36,7 @@ const MAX_IMAGES = 5;
 const todayStr = () => new Date().toISOString().split('T')[0];
 
 const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
+  const { t } = useI18n();
   const fileInputRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState('');
@@ -83,16 +85,16 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
 
     const room = MAX_IMAGES - images.length;
     if (room <= 0) {
-      setError(`You can scan up to ${MAX_IMAGES} images at once.`);
+      setError(t('scanner.maxImages', { max: MAX_IMAGES }));
       return;
     }
-    if (files.length > room) setError(`Only the first ${MAX_IMAGES} images are used per scan.`);
+    if (files.length > room) setError(t('scanner.onlyFirst', { max: MAX_IMAGES }));
 
     try {
       const compressed = await Promise.all(files.slice(0, room).map(compressImage));
       setImages((prev) => [...prev, ...compressed].slice(0, MAX_IMAGES));
     } catch {
-      setError('Could not read one of those images. Try again.');
+      setError(t('scanner.couldNotReadImage'));
     }
   };
 
@@ -138,10 +140,10 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
 
       setRows(mapped);
       if (mapped.length === 0) {
-        setError('No account balances were clearly detected. Try clearer screenshots or enter cash manually.');
+        setError(t('balanceScanner.noDetected'));
       }
     } catch (err) {
-      setError('Could not read those screenshots — try again or enter cash manually. ' + (err?.message || ''));
+      setError(t('balanceScanner.couldNotRead') + (err?.message || ''));
     } finally {
       setScanning(false);
     }
@@ -162,7 +164,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
         r.balance !== '' && Number.isFinite(parseFloat(r.balance))
     );
     if (eligibleRows.length === 0) {
-      setBalancesNote('No eligible cash rows with a balance to save.');
+      setBalancesNote(t('balanceScanner.noEligibleToSave'));
       return;
     }
     setSavingBalances(true);
@@ -191,7 +193,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
       setBalancesNote(`Saved ${total} account balance${total === 1 ? '' : 's'}${created ? ` (${created} new account${created === 1 ? '' : 's'})` : ''}.`);
       if (onBalancesUpdated) onBalancesUpdated();
     } catch (e) {
-      setBalancesNote('Some balances could not be saved: ' + (e?.message || e));
+      setBalancesNote(t('balanceScanner.someBalancesFailed', { msg: e?.message || e }));
     } finally {
       setSavingBalances(false);
     }
@@ -220,16 +222,15 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
     <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-extrabold text-foreground">Scan account balances</p>
+          <p className="font-extrabold text-foreground">{t('balanceScanner.title')}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Take or upload a screenshot of your banking-app summary. This reads the
-            image only — it is not a live bank connection.
+            {t('balanceScanner.subtitle')}
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={t('scanner.close')}
           className="p-1 text-muted-foreground hover:text-foreground shrink-0"
         >
           <Icon name="X" size={18} />
@@ -258,12 +259,12 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <Icon name="Camera" size={18} />
-              Add screenshots
+              {t('scanner.addScreenshots')}
             </button>
           ) : (
             <>
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                {images.length} image{images.length === 1 ? '' : 's'} selected
+                {t('scanner.imagesSelected', { count: images.length })}
               </p>
               <div className="flex flex-wrap gap-2">
                 {images.map((src, idx) => (
@@ -286,7 +287,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
                     className="h-20 w-16 rounded-lg border border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary"
                   >
                     <Icon name="Plus" size={18} />
-                    <span className="text-[10px] mt-0.5">Add</span>
+                    <span className="text-[10px] mt-0.5">{t('scanner.add')}</span>
                   </button>
                 )}
               </div>
@@ -299,7 +300,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
                 }`}
               >
                 <Icon name="ScanLine" size={18} />
-                {scanning ? 'Reading…' : `Scan ${images.length} image${images.length === 1 ? '' : 's'}`}
+                {scanning ? t('scanner.reading') : (images.length === 1 ? t('scanner.scanImage') : t('scanner.scanImages', { count: images.length }))}
               </button>
             </>
           )}
@@ -308,11 +309,10 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
       ) : (
         <div className="mt-4">
           <p className="text-sm font-semibold text-foreground">
-            MoFlow found these balances.
+            {t('balanceScanner.foundBalances')}
           </p>
           <p className="text-xs text-muted-foreground mb-3">
-            Review what should count as cash available to you. Edit any value, untick
-            what shouldn&apos;t count, or remove a row.
+            {t('balanceScanner.reviewText')}
           </p>
 
           <div className="space-y-2">
@@ -331,7 +331,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
                       onChange={(e) => { if (e.target.value) updateRow(r.id, { name: e.target.value }); }}
                       className={`${inputCls} w-full`}
                     >
-                      <option value="">Assign to an account… (or keep the name below)</option>
+                      <option value="">{t('balanceScanner.assignToAccount')}</option>
                       {accountNames.map((n) => (
                         <option key={n} value={n}>{n}</option>
                       ))}
@@ -344,7 +344,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
                     className={`flex items-center gap-2 shrink-0 ${
                       credit ? 'opacity-60' : 'cursor-pointer'
                     }`}
-                    title={credit ? 'Credit balances can’t count as cash' : 'Count toward available cash'}
+                    title={credit ? t('balanceScanner.creditCantCount') : t('balanceScanner.countTowardCash')}
                   >
                     <input
                       type="checkbox"
@@ -354,7 +354,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
                       className="w-5 h-5 rounded border-border"
                     />
                     <span className="text-[10px] uppercase font-bold text-muted-foreground sm:hidden">
-                      Count
+                      {t('balanceScanner.countLabel')}
                     </span>
                   </label>
 
@@ -362,7 +362,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
                     type="text"
                     value={r.name}
                     onChange={(e) => updateRow(r.id, { name: e.target.value })}
-                    placeholder="Account name"
+                    placeholder={t('balanceScanner.accountNamePlaceholder')}
                     className={`${inputCls} flex-1`}
                   />
 
@@ -383,13 +383,13 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
                   <div className="flex items-center gap-2 shrink-0">
                     {credit && (
                       <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                        Credit — not cash
+                        {t('balanceScanner.creditNotCash')}
                       </span>
                     )}
                     <button
                       type="button"
                       onClick={() => removeRow(r.id)}
-                      aria-label="Remove row"
+                      aria-label={t('balanceScanner.removeRow')}
                       className="p-2 text-muted-foreground hover:text-destructive"
                     >
                       <Icon name="Trash2" size={16} />
@@ -405,12 +405,12 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
           <div className="mt-4 rounded-xl border border-border bg-card p-4">
             {currenciesSelected.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Nothing selected to count as available cash yet.
+                {t('balanceScanner.nothingSelected')}
               </p>
             ) : singleCurrency ? (
               <div className="flex items-center justify-between">
                 <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
-                  Selected total
+                  {t('balanceScanner.selectedTotal')}
                 </span>
                 <span className="text-2xl font-extrabold text-foreground">
                   {formatCurrency(singleCurrencyTotal, singleCurrency)}
@@ -419,7 +419,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
             ) : (
               <div>
                 <p className="text-sm font-bold text-amber-700">
-                  Multiple currencies selected
+                  {t('balanceScanner.multipleCurrencies')}
                 </p>
                 <div className="mt-1 text-sm text-foreground">
                   {currenciesSelected.map((c) => (
@@ -430,8 +430,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
                   ))}
                 </div>
                 <p className="text-[11px] text-amber-700 mt-2">
-                  MoFlow won&apos;t sum different currencies. Select a single currency to
-                  apply, or adjust manually — no exchange-rate conversion is done here.
+                  {t('balanceScanner.currencyNote')}
                 </p>
               </div>
             )}
@@ -447,7 +446,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
               onClick={onClose}
               className="px-4 py-3 min-h-[48px] rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="button"
@@ -455,7 +454,7 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
               disabled={savingBalances}
               className="px-5 py-3 min-h-[48px] rounded-xl border border-border text-sm font-bold text-foreground hover:bg-muted disabled:opacity-50"
             >
-              {savingBalances ? 'Saving…' : 'Update account balances'}
+              {savingBalances ? t('balanceScanner.saving') : t('balanceScanner.updateBalances')}
             </button>
             <button
               type="button"
@@ -464,8 +463,8 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
               className="px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {canApply
-                ? `Use ${formatCurrency(singleCurrencyTotal, singleCurrency)} as available cash`
-                : 'Select a single currency to apply'}
+                ? t('balanceScanner.useAsAvailable', { amount: formatCurrency(singleCurrencyTotal, singleCurrency) })
+                : t('balanceScanner.selectSingleCurrency')}
             </button>
           </div>
         </div>

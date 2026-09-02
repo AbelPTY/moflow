@@ -46,6 +46,7 @@ export function simulate({
       totalInterest: 0,
       finalPaymentAmount: 0,
       warning: 'Enter a positive principal and payment, and a non-negative APR.',
+      warningCode: 'INVALID_INPUTS',
     };
   }
 
@@ -61,6 +62,7 @@ export function simulate({
       totalInterest: 0,
       finalPaymentAmount: 0,
       warning: '',
+      warningCode: '',
     };
   }
 
@@ -84,6 +86,7 @@ export function simulate({
         finalPaymentAmount: 0,
         warning:
           'This payment does not cover the monthly interest, so the balance would never go down.',
+        warningCode: 'NON_AMORTIZING',
       };
     }
 
@@ -110,6 +113,7 @@ export function simulate({
       totalInterest: round2(totalInterest),
       finalPaymentAmount: 0,
       warning: 'At this payment the loan would take over 100 years to pay off.',
+      warningCode: 'OVER_100_YEARS',
     };
   }
 
@@ -121,6 +125,7 @@ export function simulate({
     totalInterest: round2(totalInterest),
     finalPaymentAmount,
     warning: '',
+    warningCode: '',
   };
 }
 

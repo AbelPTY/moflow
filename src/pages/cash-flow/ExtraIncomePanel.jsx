@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import Icon from '../../components/AppIcon';
+import { useI18n } from '../../i18n';
 
 // Compact management of one-time dated extra-income events (V2.6). The parent
 // owns the persisted array and the CRUD callbacks; this component is purely the
@@ -26,6 +27,7 @@ const todayStr = () => format(new Date(), 'yyyy-MM-dd');
 const BLANK = { label: '', amount: '', date: '' };
 
 const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
+  const { t, formatDate } = useI18n();
   const [form, setForm] = useState(null); // null = collapsed; {} = adding/editing
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
@@ -55,17 +57,17 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
   const save = () => {
     const amount = parseFloat(form.amount);
     if (!(amount > 0)) {
-      setError('Enter an amount greater than 0.');
+      setError(t('flow.enterAmountGt0'));
       return;
     }
     const parsed = form.date ? parseISO(form.date) : null;
     if (!parsed || Number.isNaN(parsed.getTime())) {
-      setError('Pick a valid date.');
+      setError(t('flow.pickValidDate'));
       return;
     }
 
     const payload = {
-      label: form.label.trim() || 'Extra income',
+      label: form.label.trim() || t('flow.extraIncomeDefault'),
       amount: Math.round(amount * 100) / 100,
       date: form.date,
     };
@@ -94,7 +96,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Icon name="PlusCircle" size={16} className="text-emerald-600" />
-          <span className="text-sm font-bold text-foreground">Extra income</span>
+          <span className="text-sm font-bold text-foreground">{t('flow.extraIncome')}</span>
           {sorted.length > 0 && (
             <span className="text-xs text-muted-foreground">({sorted.length})</span>
           )}
@@ -105,7 +107,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
             onClick={openAdd}
             className="text-sm font-semibold text-blue-600 hover:text-blue-700"
           >
-            + Add extra income
+            {t('flow.addExtraIncome')}
           </button>
         )}
       </div>
@@ -114,13 +116,13 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-[1fr_130px_160px] gap-2 items-end">
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
-              Label
+              {t('flow.label')}
             </label>
             <input
               list="extra-income-labels"
               value={form.label}
               onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-              placeholder="Bonus, Freelance…"
+              placeholder={t('flow.labelPlaceholder')}
               className={inputCls}
             />
             <datalist id="extra-income-labels">
@@ -132,7 +134,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
 
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
-              Amount
+              {t('flow.amount')}
             </label>
             <input
               type="number"
@@ -148,7 +150,7 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
 
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">
-              Date
+              {t('flow.date')}
             </label>
             <input
               type="date"
@@ -168,14 +170,14 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
               onClick={close}
               className="px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="button"
               onClick={save}
               className="px-4 py-2.5 min-h-[44px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90"
             >
-              Save
+              {t('common.save')}
             </button>
           </div>
         </div>
@@ -190,15 +192,15 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
             >
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground truncate">
-                  {item.label || 'Extra income'}
+                  {item.label || t('flow.extraIncomeDefault')}
                   {item.isPast && (
                     <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      past
+                      {t('flow.past')}
                     </span>
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {format(parseISO(item.date), 'MMM d, yyyy')}
+                  {formatDate(parseISO(item.date), { month: 'short', day: 'numeric', year: 'numeric' })}
                 </p>
               </div>
               <div className="flex items-center gap-3 shrink-0">
@@ -210,14 +212,14 @@ const ExtraIncomePanel = ({ items, onAdd, onUpdate, onDelete }) => {
                   onClick={() => openEdit(item)}
                   className="text-xs font-semibold text-blue-600 hover:text-blue-700"
                 >
-                  Edit
+                  {t('common.edit')}
                 </button>
                 <button
                   type="button"
                   onClick={() => onDelete(item.id)}
                   className="text-xs font-semibold text-destructive hover:text-destructive/80"
                 >
-                  Delete
+                  {t('common.delete')}
                 </button>
               </div>
             </div>

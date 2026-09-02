@@ -4,6 +4,7 @@ import Icon from '../../components/AppIcon';
 import BalanceScanner from '../../components/BalanceScanner';
 import { nextDueDate } from '../../lib/cardGuard';
 import { trackProductEvent } from '../../lib/analytics';
+import { useI18n } from '../../i18n';
 
 // Flow Lite: the minimal Cards -> Flow onboarding bridge. It asks only three
 // things (available cash, next income amount, next income date) and shows a
@@ -63,6 +64,7 @@ const FlowLiteSetup = ({
   onBalanceApplied,
   onSeeFullFlow,
 }) => {
+  const { t, formatDate } = useI18n();
   const [nextIncomeDate, setNextIncomeDate] = useState(readInitialDate);
   const [showScanner, setShowScanner] = useState(false);
 
@@ -162,10 +164,10 @@ const FlowLiteSetup = ({
         </div>
         <div className="min-w-0">
           <h2 className="text-lg font-extrabold text-foreground">
-            Can you comfortably cover what&apos;s due?
+            {t('flowLite.coverTitle')}
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Tell MoFlow what cash you have now and when money comes in next.
+            {t('flowLite.coverSubtitle')}
           </p>
         </div>
       </div>
@@ -174,7 +176,7 @@ const FlowLiteSetup = ({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-            Available cash now
+            {t('flow.availableCashNow')}
           </label>
           <input
             type="number"
@@ -196,13 +198,13 @@ const FlowLiteSetup = ({
             className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
           >
             <Icon name="Camera" size={14} />
-            Scan balances
+            {t('flowLite.scanBalances')}
           </button>
         </div>
 
         <div>
           <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-            Next income amount
+            {t('flowLite.nextIncomeAmount')}
           </label>
           <input
             type="number"
@@ -218,7 +220,7 @@ const FlowLiteSetup = ({
 
         <div>
           <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-            Next income date
+            {t('flowLite.nextIncomeDate')}
           </label>
           <input
             type="date"
@@ -240,18 +242,18 @@ const FlowLiteSetup = ({
         <div className="mt-5 rounded-xl border border-border bg-card p-4">
           {/* PRIMARY: coverage BEFORE next income */}
           <div className="grid grid-cols-2 gap-y-1.5 text-sm">
-            <span className="text-muted-foreground">Available now</span>
+            <span className="text-muted-foreground">{t('flowLite.availableNow')}</span>
             <span className="text-right font-semibold text-foreground">{money(cash)}</span>
 
             <span className="text-muted-foreground">
-              Known commitments before next income
+              {t('flowLite.knownCommitmentsBefore')}
               {commitments.items.length > 0 ? ` (${commitments.items.length})` : ''}
             </span>
             <span className="text-right font-semibold text-foreground">-{money(commitments.total)}</span>
 
             <span className="col-span-2 border-t border-border my-1.5" />
 
-            <span className="font-bold text-foreground">Remaining before next income</span>
+            <span className="font-bold text-foreground">{t('flowLite.remainingBeforeIncome')}</span>
             <span
               className={`text-right font-extrabold ${
                 cashBeforeIncome < 0 ? 'text-red-600' : 'text-foreground'
@@ -268,28 +270,17 @@ const FlowLiteSetup = ({
                 : 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-300 border border-emerald-200'
             }`}
           >
-            {cashBeforeIncome < 0 ? (
-              <>
-                You may be short by approximately{' '}
-                <span className="font-bold">{money(Math.abs(cashBeforeIncome))}</span> before
-                your next income on{' '}
-                <span className="font-bold">{format(incomeDateObj, 'MMM d')}</span>.
-              </>
-            ) : (
-              <>
-                Your known commitments before your next income on{' '}
-                <span className="font-bold">{format(incomeDateObj, 'MMM d')}</span> are
-                projected to be covered.
-              </>
-            )}
+            {cashBeforeIncome < 0
+              ? t('flowLite.shortBy', { amount: money(Math.abs(cashBeforeIncome)), date: formatDate(incomeDateObj, { month: 'short', day: 'numeric' }) })
+              : t('flowLite.coveredBefore', { date: formatDate(incomeDateObj, { month: 'short', day: 'numeric' }) })}
           </div>
 
           {/* SECONDARY: informational post-income position */}
           <div className="mt-3 grid grid-cols-2 gap-y-1.5 text-sm border-t border-border pt-3">
-            <span className="text-muted-foreground">Next income</span>
+            <span className="text-muted-foreground">{t('flowLite.nextIncome')}</span>
             <span className="text-right font-semibold text-emerald-600">+{money(income)}</span>
 
-            <span className="text-muted-foreground">Projected after next income</span>
+            <span className="text-muted-foreground">{t('flowLite.projectedAfter')}</span>
             <span
               className={`text-right font-bold ${
                 projectedAfterIncome < 0 ? 'text-red-600' : 'text-foreground'
@@ -300,17 +291,12 @@ const FlowLiteSetup = ({
           </div>
 
           <p className="mt-2 text-[11px] text-muted-foreground">
-            A projection from your known commitments only (unpaid card statements and
-            scheduled payments due on/before your next income). Coverage is judged on
-            cash available <span className="font-semibold">before</span> your next income;
-            the post-income figure is informational and does not cover pre-payday
-            obligations. It does not model everyday spending.
+            {t('flowLite.projectionNote')}
           </p>
         </div>
       ) : (
         <p className="mt-4 text-xs text-muted-foreground">
-          Enter your available cash, next income amount, and next income date to see a
-          quick projection.
+          {t('flowLite.enterInputs')}
         </p>
       )}
 
@@ -320,7 +306,7 @@ const FlowLiteSetup = ({
           onClick={onSeeFullFlow}
           className="inline-flex items-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
         >
-          See full Flow
+          {t('flowLite.seeFullFlow')}
           <Icon name="ArrowDown" size={16} />
         </button>
       </div>

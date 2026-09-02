@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Icon from './AppIcon';
 import { supabase } from '../lib/supabase';
 import { authHeader } from '../lib/apiClient';
+import { useI18n } from '../i18n';
 
 const MIC_SIZE = 56; // w-14 / h-14
 const MARGIN = 8;
@@ -21,6 +22,7 @@ const SpeechRecognition =
   typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
 
 export default function QuickCaptureTask() {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [recording, setRecording] = useState(false);
@@ -82,7 +84,7 @@ export default function QuickCaptureTask() {
   const closeModal = () => { stopRecording(); setOpen(false); setTranscript(''); setExtracted([]); };
 
   const startRecording = () => {
-    if (!SpeechRecognition) { alert('Voice input is not supported on this browser — type your note instead.'); return; }
+    if (!SpeechRecognition) { alert(t('quickTask.voiceUnsupported')); return; }
     const rec = new SpeechRecognition();
     rec.lang = (typeof navigator !== 'undefined' && navigator.language) || 'es-419';
     rec.continuous = true;
@@ -112,7 +114,7 @@ export default function QuickCaptureTask() {
       const arr = await resp.json();
       setExtracted(Array.isArray(arr) ? arr.map((t, i) => ({ ...t, _id: i })) : []);
     } catch (e) {
-      alert('Could not turn that into tasks — try again or type it out.\n\n' + (e?.message || e));
+      alert(t('quickTask.extractFailed') + '\n\n' + (e?.message || e));
     } finally {
       setExtracting(false);
     }
@@ -133,9 +135,9 @@ export default function QuickCaptureTask() {
       const n = rows.length;
       closeModal();
       if (window.location.pathname === '/action-plan') window.location.reload();
-      else alert(`Added ${n} task${n === 1 ? '' : 's'} to your Action Plan.`);
+      else alert(n === 1 ? t('quickTask.addedTask', { count: n }) : t('quickTask.addedTasks', { count: n }));
     } catch (e) {
-      alert('Failed to save: ' + (e?.message || e));
+      alert(t('quickTask.saveFailed', { msg: e?.message || e }));
     } finally {
       setSaving(false);
     }
@@ -147,7 +149,7 @@ export default function QuickCaptureTask() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        title="Quick voice to-do — drag to move"
+        title={t('quickTask.title')}
         style={{ left: `${pos.x}px`, top: `${pos.y}px`, touchAction: 'none' }}
         className="fixed z-[60] w-14 h-14 rounded-full bg-purple-600 text-white shadow-lg flex items-center justify-center hover:bg-purple-700 transition-colors cursor-grab active:cursor-grabbing select-none touch-none"
       >
@@ -158,7 +160,7 @@ export default function QuickCaptureTask() {
         <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-[1100] p-4" onClick={closeModal}>
           <div className="bg-card rounded-xl shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-bold text-foreground">Quick to-do</h3>
+              <h3 className="text-lg font-bold text-foreground">{t('quickTask.heading')}</h3>
               <button onClick={closeModal} className="text-muted-foreground hover:text-muted-foreground"><Icon name="X" size={18} /></button>
             </div>
 
@@ -173,7 +175,7 @@ export default function QuickCaptureTask() {
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
                 rows={3}
-                placeholder={recording ? 'Listening…' : 'Speak or type a money to-do…'}
+                placeholder={recording ? t('quickTask.listening') : t('quickTask.placeholder')}
                 className="flex-1 border border-border rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
               />
             </div>
@@ -185,26 +187,26 @@ export default function QuickCaptureTask() {
                   disabled={extracting || !transcript.trim()}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-40"
                 >
-                  {extracting ? 'Sorting…' : 'Sort into tasks'}
+                  {extracting ? t('quickTask.sorting') : t('quickTask.sortIntoTasks')}
                 </button>
               </div>
             ) : (
               <div className="mt-3">
                 <div className="space-y-2 max-h-52 overflow-y-auto">
-                  {extracted.map((t) => (
-                    <div key={t._id} className="flex items-center justify-between gap-2 bg-background rounded-lg px-3 py-2">
+                  {extracted.map((task) => (
+                    <div key={task._id} className="flex items-center justify-between gap-2 bg-background rounded-lg px-3 py-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
-                        <span className="text-[10px] text-muted-foreground">{t.category}{t.due_date ? ` · due ${t.due_date}` : ''}</span>
+                        <p className="text-sm font-medium text-foreground truncate">{task.title}</p>
+                        <span className="text-[10px] text-muted-foreground">{task.category}{task.due_date ? ` · ${t('quickTask.due', { date: task.due_date })}` : ''}</span>
                       </div>
-                      <button onClick={() => setExtracted((prev) => prev.filter((x) => x._id !== t._id))} className="text-muted-foreground hover:text-red-500 shrink-0"><Icon name="X" size={14} /></button>
+                      <button onClick={() => setExtracted((prev) => prev.filter((x) => x._id !== task._id))} className="text-muted-foreground hover:text-red-500 shrink-0"><Icon name="X" size={14} /></button>
                     </div>
                   ))}
                 </div>
                 <div className="flex justify-end gap-2 mt-3">
-                  <button onClick={() => setExtracted([])} className="px-3 py-2 text-muted-foreground hover:bg-muted rounded-lg text-sm font-medium">Back</button>
+                  <button onClick={() => setExtracted([])} className="px-3 py-2 text-muted-foreground hover:bg-muted rounded-lg text-sm font-medium">{t('quickTask.back')}</button>
                   <button onClick={save} disabled={saving} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
-                    {saving ? 'Saving…' : `Add ${extracted.length}`}
+                    {saving ? t('quickTask.saving') : t('quickTask.addCount', { count: extracted.length })}
                   </button>
                 </div>
               </div>

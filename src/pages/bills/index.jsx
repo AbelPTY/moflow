@@ -4,6 +4,7 @@ import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import UpcomingPaymentsCalendar from '../../components/UpcomingPaymentsCalendar';
 import useCreditCards from '../../hooks/useCreditCards';
 import { nextDueDate } from '../../lib/cardGuard';
+import { useI18n } from '../../i18n';
 
 // Bills tab: a single home for what is due, what recurs, and what is coming
 // next. It reuses the same UpcomingPaymentsCalendar as Cash Flow. Card
@@ -15,6 +16,7 @@ import { nextDueDate } from '../../lib/cardGuard';
 // financing warnings) lives on the Cards tab and remains a follow-up.
 const Bills = () => {
   const { cards } = useCreditCards();
+  const { t } = useI18n();
 
   const cardCalendarEvents = useMemo(
     () =>
@@ -28,7 +30,7 @@ const Bills = () => {
 
           return {
             id: `card-${card.id}`,
-            entity: `${card.card_name} statement`,
+            entity: `${card.card_name} ${t('bills.statementSuffix')}`,
             amount: Number(card.statement_balance) || 0,
             payment_date: format(due, 'yyyy-MM-dd'),
             status: card.statement_paid ? 'paid' : 'pending',
@@ -45,9 +47,9 @@ const Bills = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold">Bills</h1>
+          <h1 className="text-3xl font-bold">{t('bills.title')}</h1>
           <p className="text-sm text-muted-foreground font-medium mt-1">
-            See what is due, what is recurring, and what is coming next.
+            {t('bills.subtitle')}
           </p>
         </div>
 

@@ -5,9 +5,11 @@ import {
   isSupportedLocale,
   resolveLocale,
   translate,
+  translateCategory as xlateCategory,
   formatCurrency as fmtCurrency,
   formatDate as fmtDate,
   formatNumber as fmtNumber,
+  formatDuration as fmtDuration,
 } from './core.js';
 
 export {
@@ -18,9 +20,11 @@ export {
   detectLocale,
   normalizeToLocale,
   translate,
+  translateCategory,
   formatCurrency,
   formatNumber,
   formatDate,
+  formatDuration,
 } from './core.js';
 
 const STORAGE_KEY = 'moflow.locale';
@@ -73,9 +77,11 @@ export function I18nProvider({ children }) {
       setLocale,
       locales: LOCALES,
       t: (key, vars) => translate(locale, key, vars),
+      tCategory: (name) => xlateCategory(locale, name),
       formatCurrency: (amount, currency) => fmtCurrency(amount, locale, currency),
       formatNumber: (n, options) => fmtNumber(n, locale, options),
       formatDate: (date, options) => fmtDate(date, locale, options),
+      formatDuration: (months) => fmtDuration(months, locale),
     }),
     [locale, setLocale]
   );
@@ -93,9 +99,11 @@ export function useI18n() {
     setLocale: () => {},
     locales: LOCALES,
     t: (key, vars) => translate(DEFAULT_LOCALE, key, vars),
+    tCategory: (name) => xlateCategory(DEFAULT_LOCALE, name),
     formatCurrency: (amount, currency) => fmtCurrency(amount, DEFAULT_LOCALE, currency),
     formatNumber: (n, options) => fmtNumber(n, DEFAULT_LOCALE, options),
     formatDate: (date, options) => fmtDate(date, DEFAULT_LOCALE, options),
+    formatDuration: (months) => fmtDuration(months, DEFAULT_LOCALE),
   };
 }
 

@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { authHeader } from '../lib/apiClient';
 import { flagDuplicateActivityRows } from '../lib/dedupeTransactions';
+import { useI18n } from '../i18n';
 import { trackProductEvent } from '../lib/analytics';
 
 // Reusable recent-activity screenshot importer. Reads ONE banking-app activity
@@ -34,6 +35,7 @@ const toIsoDate = (dateStr) => {
 
 const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
   const { user } = useAuth();
+  const { t } = useI18n();
   const fileInputRef = useRef(null);
 
   const [scanning, setScanning] = useState(false);
@@ -91,19 +93,19 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
 
     const room = MAX_IMAGES - images.length;
     if (room <= 0) {
-      setError(`You can scan up to ${MAX_IMAGES} images at once.`);
+      setError(t('scanner.maxImages', { max: MAX_IMAGES }));
       return;
     }
     const toAdd = files.slice(0, room);
     if (files.length > room) {
-      setError(`Only the first ${MAX_IMAGES} images are used per scan.`);
+      setError(t('scanner.onlyFirst', { max: MAX_IMAGES }));
     }
 
     try {
       const compressed = await Promise.all(toAdd.map(compressImage));
       setImages((prev) => [...prev, ...compressed].slice(0, MAX_IMAGES));
     } catch {
-      setError('Could not read one of those images. Try again.');
+      setError(t('scanner.couldNotReadImage'));
     }
   };
 
@@ -142,10 +144,10 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
       setRows(flagged.map((r) => ({ ...r, include: !r.isDuplicate })));
 
       if (flagged.length === 0) {
-        setError('No transactions were clearly detected. Try clearer screenshots.');
+        setError(t('activityScanner.noDetected'));
       }
     } catch (err) {
-      setError('Could not read those screenshots — try again. ' + (err?.message || ''));
+      setError(t('activityScanner.couldNotRead') + (err?.message || ''));
     } finally {
       setScanning(false);
     }
@@ -221,11 +223,11 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
 
   const importSelected = async () => {
     if (!user?.id) {
-      setError('Please sign in again to import.');
+      setError(t('activityScanner.signInAgain'));
       return;
     }
     if (!accountChosen) {
-      setError('Choose which account these transactions belong to before importing.');
+      setError(t('activityScanner.chooseAccountFirst'));
       return;
     }
     // `selected` already excludes hard duplicates, so they can never reach here.
@@ -233,7 +235,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
       (r) => r.description && parseFloat(r.amount) !== 0 && !Number.isNaN(parseFloat(r.amount))
     );
     if (toImport.length === 0) {
-      setError('Select at least one row with a description and non-zero amount.');
+      setError(t('activityScanner.selectAtLeastOne'));
       return;
     }
 
@@ -262,7 +264,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
       setRows(null);
       if (onImported) onImported(formatted.length);
     } catch (err) {
-      setError('Import failed: ' + (err?.message || 'unknown error'));
+      setError(t('activityScanner.importFailed', { msg: err?.message || 'unknown error' }));
     } finally {
       setImporting(false);
     }
@@ -275,17 +277,15 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
     <div className="rounded-2xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-extrabold text-foreground">Scan recent activity</p>
+          <p className="font-extrabold text-foreground">{t('activityScanner.title')}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Upload screenshots from your banking app and review transactions before
-            importing. MoFlow reads the image you choose to upload — it is not a bank
-            connection.
+            {t('activityScanner.subtitle')}
           </p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label={t('scanner.close')}
           className="p-1 text-muted-foreground hover:text-foreground shrink-0"
         >
           <Icon name="X" size={18} />
@@ -305,11 +305,10 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
       {done && (
         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 p-4">
           <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">
-            {done.count} transaction{done.count === 1 ? '' : 's'} imported
+            {t('activityScanner.importedCount', { count: done.count })}
           </p>
           <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1">
-            MoFlow can now use these transactions to improve spending and
-            recurring-payment insights.
+            {t('activityScanner.improveInsights')}
           </p>
           <div className="mt-3 flex gap-2">
             <button
@@ -317,14 +316,14 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
               onClick={() => { setDone(null); setImages([]); setRows(null); setError(''); }}
               className="px-4 py-2.5 min-h-[44px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90"
             >
-              Scan more
+              {t('activityScanner.scanMore')}
             </button>
             <button
               type="button"
               onClick={onClose}
               className="px-4 py-2.5 min-h-[44px] rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted"
             >
-              Done
+              {t('activityScanner.done')}
             </button>
           </div>
         </div>
@@ -341,12 +340,12 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl text-sm font-bold transition-colors bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <Icon name="Camera" size={18} />
-              Add screenshots
+              {t('scanner.addScreenshots')}
             </button>
           ) : (
             <>
               <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                {images.length} image{images.length === 1 ? '' : 's'} selected
+                {t('scanner.imagesSelected', { count: images.length })}
               </p>
               <div className="flex flex-wrap gap-2">
                 {images.map((src, idx) => (
@@ -355,7 +354,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
                     <button
                       type="button"
                       onClick={() => removeImage(idx)}
-                      aria-label={`Remove page ${idx + 1}`}
+                      aria-label={t('scanner.removePage')}
                       className="absolute -top-2 -right-2 bg-card border border-border rounded-full p-0.5 text-muted-foreground hover:text-destructive shadow-sm"
                     >
                       <Icon name="X" size={14} />
@@ -372,7 +371,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
                     className="h-20 w-16 rounded-lg border border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary"
                   >
                     <Icon name="Plus" size={18} />
-                    <span className="text-[10px] mt-0.5">Add</span>
+                    <span className="text-[10px] mt-0.5">{t('scanner.add')}</span>
                   </button>
                 )}
               </div>
@@ -386,7 +385,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
                 }`}
               >
                 <Icon name="ScanLine" size={18} />
-                {scanning ? 'Reading…' : `Scan ${images.length} image${images.length === 1 ? '' : 's'}`}
+                {scanning ? t('scanner.reading') : (images.length === 1 ? t('scanner.scanImage') : t('scanner.scanImages', { count: images.length }))}
               </button>
             </>
           )}
@@ -399,14 +398,14 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
         <div className="mt-4">
           {/* ACCOUNT DESTINATION (required, no silent fallback) */}
           <label className="block text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-            Import into account <span className="text-red-500">*</span>
+            {t('activityScanner.importIntoAccount')} <span className="text-red-500">*</span>
           </label>
           {noKnownAccounts ? (
             <input
               type="text"
               value={customAccount}
               onChange={(e) => setCustomAccount(e.target.value)}
-              placeholder="Type the account name these transactions belong to"
+              placeholder={t('activityScanner.typeAccountPlaceholder')}
               className={`${inputCls} mb-2`}
             />
           ) : (
@@ -416,20 +415,20 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
                 onChange={(e) => setAccount(e.target.value)}
                 className={`${inputCls} mb-2`}
               >
-                <option value="">Select account…</option>
+                <option value="">{t('accounts.selectAccount')}</option>
                 {knownAccounts.map((a) => (
                   <option key={a} value={a}>
                     {a}
                   </option>
                 ))}
-                <option value="__custom__">+ Type a different account…</option>
+                <option value="__custom__">{t('activityScanner.typeDifferent')}</option>
               </select>
               {usingCustom && (
                 <input
                   type="text"
                   value={customAccount}
                   onChange={(e) => setCustomAccount(e.target.value)}
-                  placeholder="Account name"
+                  placeholder={t('balanceScanner.accountNamePlaceholder')}
                   className={`${inputCls} mb-2`}
                 />
               )}
@@ -437,28 +436,28 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
           )}
           {!accountChosen && (
             <p className="text-[11px] text-amber-700 mb-2">
-              Choose an account to enable importing.
+              {t('activityScanner.chooseAccountHint')}
             </p>
           )}
 
           <p className="text-xs text-muted-foreground mb-3">
-            MoFlow found these transactions. Review, edit, and choose which to import.
+            {t('activityScanner.foundTransactions')}
             {hardDupCount > 0 && (
               <>
                 {' '}
                 <span className="font-semibold text-red-600">
-                  {hardDupCount} already imported
+                  {t('activityScanner.alreadyImportedCount', { count: hardDupCount })}
                 </span>{' '}
-                (locked, can&apos;t be re-imported).
+                {t('activityScanner.lockedCantReimport')}
               </>
             )}
             {softDupCount > 0 && (
               <>
                 {' '}
                 <span className="font-semibold text-amber-700">
-                  {softDupCount} possible duplicate{softDupCount === 1 ? '' : 's'}
+                  {softDupCount === 1 ? t('activityScanner.possibleDuplicateCount', { count: softDupCount }) : t('activityScanner.possibleDuplicateCountPlural', { count: softDupCount })}
                 </span>{' '}
-                unticked by default.
+                {t('activityScanner.untickedDefault')}
               </>
             )}
           </p>
@@ -480,7 +479,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
               >
                 <label
                   className={`flex items-center gap-2 shrink-0 ${isHard ? 'opacity-60' : 'cursor-pointer'}`}
-                  title={isHard ? 'Already imported — can’t be re-imported' : 'Import this transaction'}
+                  title={isHard ? t('activityScanner.alreadyImportedTitle') : t('activityScanner.importThisTitle')}
                 >
                   <input
                     type="checkbox"
@@ -490,7 +489,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
                     className="w-5 h-5 rounded border-border"
                   />
                   <span className="text-[10px] uppercase font-bold text-muted-foreground sm:hidden">
-                    Import
+                    {t('activityScanner.importLabel')}
                   </span>
                 </label>
 
@@ -504,7 +503,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
                   type="text"
                   value={r.description}
                   onChange={(e) => updateRow(r.id, { description: e.target.value })}
-                  placeholder="Description"
+                  placeholder={t('activityScanner.descriptionPlaceholder')}
                   className={`${inputCls} flex-1`}
                 />
                 <input
@@ -521,23 +520,23 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
                 <div className="flex items-center gap-2 shrink-0">
                   {isHard ? (
                     <span
-                      title={r.duplicateNote || 'Already imported'}
+                      title={r.duplicateNote || t('activityScanner.alreadyImported')}
                       className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-100 text-red-700"
                     >
-                      Already imported
+                      {t('activityScanner.alreadyImported')}
                     </span>
                   ) : isSoft ? (
                     <span
-                      title={r.duplicateNote || 'A similar transaction already exists'}
+                      title={r.duplicateNote || t('activityScanner.similarExists')}
                       className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-700"
                     >
-                      Possible duplicate
+                      {t('activityScanner.possibleDuplicate')}
                     </span>
                   ) : null}
                   <button
                     type="button"
                     onClick={() => removeRow(r.id)}
-                    aria-label="Remove row"
+                    aria-label={t('activityScanner.removeRow')}
                     className="p-2 text-muted-foreground hover:text-destructive"
                   >
                     <Icon name="Trash2" size={16} />
@@ -551,7 +550,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
           {/* COUNT + SELECTED TOTAL */}
           <div className="mt-4 rounded-xl border border-border bg-card p-4 flex items-center justify-between">
             <span className="text-sm font-bold text-muted-foreground uppercase tracking-wider">
-              {selected.length} selected
+              {t('activityScanner.selectedCount', { count: selected.length })}
             </span>
             <span
               className={`text-xl font-extrabold ${
@@ -570,7 +569,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
               onClick={onClose}
               className="px-4 py-3 min-h-[48px] rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="button"
@@ -578,7 +577,7 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
               disabled={importing || selected.length === 0 || !accountChosen}
               className="px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {importing ? 'Importing…' : `Import selected (${selected.length})`}
+              {importing ? t('activityScanner.importing') : t('activityScanner.importSelectedCount', { count: selected.length })}
             </button>
           </div>
         </div>

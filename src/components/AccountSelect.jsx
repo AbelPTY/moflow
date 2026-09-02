@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import useAccounts from '../hooks/useAccounts';
 import useLegacyAccountNames from '../hooks/useLegacyAccountNames';
 import { mergeAccountOptions, ACCOUNT_TYPES } from '../lib/accountOptions';
+import { useI18n } from '../i18n';
 
 // Reusable "Import into account" control. Shows the user's active first-class
 // accounts + legacy transaction-derived names + an explicit Cash/Manual
@@ -20,6 +21,7 @@ const CURRENCIES = ['USD', 'PAB', 'EUR', 'GBP', 'CAD', 'MXN'];
 const BLANK = { account_name: '', account_type: 'checking', institution_name: '', currency: 'USD' };
 
 export default function AccountSelect({ value, onChange, includeCashManual = true, allowLegacy = true }) {
+  const { t } = useI18n();
   const { accounts, addAccount } = useAccounts();
   const legacyNames = useLegacyAccountNames();
 
@@ -66,31 +68,31 @@ export default function AccountSelect({ value, onChange, includeCashManual = tru
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Account name</label>
-            <input className={inputCls} value={form.account_name} onChange={(e) => change('account_name', e.target.value)} placeholder="e.g. UNFCU Savings" autoFocus />
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('accounts.accountName')}</label>
+            <input className={inputCls} value={form.account_name} onChange={(e) => change('account_name', e.target.value)} placeholder={t('accounts.createNamePlaceholder')} autoFocus />
           </div>
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Type</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('accounts.typeLabel')}</label>
             <select className={inputCls} value={form.account_type} onChange={(e) => change('account_type', e.target.value)}>
-              {ACCOUNT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {ACCOUNT_TYPES.map((opt) => <option key={opt.value} value={opt.value}>{t(`accountTypes.${opt.value}`)}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Currency</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('accounts.currency')}</label>
             <select className={inputCls} value={form.currency} onChange={(e) => change('currency', e.target.value)}>
               {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Institution (optional)</label>
-            <input className={inputCls} value={form.institution_name} onChange={(e) => change('institution_name', e.target.value)} placeholder="e.g. UNFCU" />
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('accounts.institutionOptional')}</label>
+            <input className={inputCls} value={form.institution_name} onChange={(e) => change('institution_name', e.target.value)} placeholder={t('accounts.institutionPlaceholder')} />
           </div>
         </div>
         {err && <p className="text-xs text-red-600 mt-2">{err}</p>}
         <div className="flex justify-end gap-2 mt-3">
-          <button type="button" onClick={() => setCreating(false)} className="px-3 py-2.5 min-h-[44px] rounded-md text-sm font-medium text-muted-foreground hover:bg-muted">Cancel</button>
+          <button type="button" onClick={() => setCreating(false)} className="px-3 py-2.5 min-h-[44px] rounded-md text-sm font-medium text-muted-foreground hover:bg-muted">{t('common.cancel')}</button>
           <button type="button" onClick={create} disabled={busy} className="px-4 py-2.5 min-h-[44px] rounded-md bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50">
-            {busy ? 'Creating…' : 'Create & use account'}
+            {busy ? t('accounts.creating') : t('accounts.createAndUse')}
           </button>
         </div>
       </div>
@@ -103,10 +105,10 @@ export default function AccountSelect({ value, onChange, includeCashManual = tru
       onChange={(e) => handleSelect(e.target.value)}
       className={inputCls}
     >
-      <option value="">Select account…</option>
+      <option value="">{t('accounts.selectAccount')}</option>
       {options.map((n) => <option key={n} value={n}>{n}</option>)}
       {includeCashManual && <option value="Cash/Manual">Cash/Manual</option>}
-      <option value="__new__">+ Add new account</option>
+      <option value="__new__">{t('accounts.addNewAccount')}</option>
     </select>
   );
 }

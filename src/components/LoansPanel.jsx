@@ -3,25 +3,19 @@ import { format, parseISO } from 'date-fns';
 import Icon from './AppIcon';
 import useLoans from '../hooks/useLoans';
 import useScheduledPayments from '../hooks/useScheduledPayments';
-import { analyzeLoan, describeMonths } from '../lib/loanMath';
+import { analyzeLoan } from '../lib/loanMath';
 import { trackProductEvent } from '../lib/analytics';
 import { authHeader } from '../lib/apiClient';
 import ImageScanTray from './ImageScanTray';
+import { useI18n } from '../i18n';
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-const LOAN_TYPES = [
-  { value: 'mortgage', label: 'Mortgage' },
-  { value: 'auto', label: 'Auto' },
-  { value: 'personal', label: 'Personal' },
-  { value: 'student', label: 'Student' },
-  { value: 'other', label: 'Other' },
-];
-
-const typeLabel = (v) => LOAN_TYPES.find((t) => t.value === v)?.label || 'Other';
+// Canonical loan_type values (stored). Display labels come from i18n loanTypes.*
+const LOAN_TYPE_VALUES = ['mortgage', 'auto', 'personal', 'student', 'other'];
 
 const BLANK = {
   loan_name: '',
@@ -34,12 +28,19 @@ const BLANK = {
   maturity_date: '',
 };
 
-const DISCLOSURE =
-  "Estimate assumes a fixed interest rate, monthly payments, and that extra payments are applied directly to principal with no prepayment penalty. Your lender's actual calculation may differ.";
-
 const fmtMonth = (date) => (date ? format(date, 'MMM yyyy') : null);
 
+// Map loanMath's language-neutral warning codes to i18n keys (falls back to the
+// engine's English `warning` string if a code is ever missing).
+const WARN_KEY = {
+  INVALID_INPUTS: 'loans.warnInvalidInputs',
+  NON_AMORTIZING: 'loans.warnNonAmortizing',
+  OVER_100_YEARS: 'loans.warnOver100Years',
+};
+const warnText = (t, sim) => (sim?.warningCode && WARN_KEY[sim.warningCode] ? t(WARN_KEY[sim.warningCode]) : (sim?.warning || ''));
+
 export default function LoansPanel() {
+  const { t } = useI18n();
   const { loans, loading, addLoan, updateLoan, deleteLoan } = useLoans();
   const { payments, addPayment } = useScheduledPayments();
 
@@ -79,7 +80,7 @@ export default function LoansPanel() {
         principal > 0 || payment > 0 || (d.apr !== null && d.apr !== undefined) || !!d.loan_name_hint;
 
       if (!hasUseful) {
-        setScanError("We couldn't confidently read the loan details. Try other images or enter them manually.");
+        setScanError(t('loans.scanFailedRead'));
         return;
       }
 
@@ -98,7 +99,7 @@ export default function LoansPanel() {
       setScanned(true);
       setScanOpen(false);
     } catch (err) {
-      setScanError('Could not read the loan statement — try other images or enter it manually. ' + (err?.message || ''));
+      setScanError(t('loans.scanFailedGeneric') + (err?.message || ''));
     } finally {
       setScanning(false);
     }
@@ -120,10 +121,10 @@ export default function LoansPanel() {
   const change = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async () => {
-    if (!form.loan_name.trim()) { alert('Loan name is required.'); return; }
-    if (!(Number(form.remaining_principal) > 0)) { alert('Remaining principal must be greater than 0.'); return; }
-    if (!(Number(form.monthly_payment) > 0)) { alert('Monthly payment must be greater than 0.'); return; }
-    if (Number(form.apr) < 0) { alert('APR cannot be negative.'); return; }
+    if (!form.loan_name.trim()) { alert(t('loans.nameRequired')); return; }
+    if (!(Number(form.remaining_principal) > 0)) { alert(t('loans.principalGt0')); return; }
+    if (!(Number(form.monthly_payment) > 0)) { alert(t('loans.paymentGt0')); return; }
+    if (Number(form.apr) < 0) { alert(t('loans.aprNegative')); return; }
 
     setBusy(true);
     const isEdit = !!form.id;
@@ -133,15 +134,15 @@ export default function LoansPanel() {
       trackProductEvent(isEdit ? 'loan_edited' : 'loan_added', { source_screen: 'cards' });
       setForm(null);
     } catch (e) {
-      alert('Failed to save loan: ' + (e?.message || e));
+      alert(t('loans.saveFailed', { msg: e?.message || e }));
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async (loan) => {
-    if (!window.confirm(`Remove ${loan.loan_name}?`)) return;
-    try { await deleteLoan(loan.id); } catch (e) { alert('Failed to remove: ' + (e?.message || e)); }
+    if (!window.confirm(t('loans.removeConfirm', { name: loan.loan_name }))) return;
+    try { await deleteLoan(loan.id); } catch (e) { alert(t('loans.removeFailed', { msg: e?.message || e })); }
   };
 
   const openSimulator = (loan) => {
@@ -158,15 +159,15 @@ export default function LoansPanel() {
   return (
     <div className="bg-card rounded-xl border border-border shadow-sm mb-8 overflow-hidden">
       <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3">
-        <div className="font-bold text-foreground">Loans</div>
+        <div className="font-bold text-foreground">{t('loans.loans')}</div>
         {!form && !scanOpen && loans.length > 0 && (
           <div className="flex items-center gap-3">
             <button onClick={openScan} className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:opacity-80">
               <Icon name="Camera" size={14} />
-              Scan another loan
+              {t('loans.scanAnotherLoan')}
             </button>
             <button onClick={openAdd} className="text-sm font-semibold text-primary hover:opacity-80">
-              + Add loan
+              + {t('loans.addLoan')}
             </button>
           </div>
         )}
@@ -176,19 +177,18 @@ export default function LoansPanel() {
       {!form && scanOpen && (
         <div className="p-5 bg-primary/5 border-b border-border">
           <div className="flex items-center justify-between gap-3 mb-3">
-            <p className="text-sm font-bold text-foreground">Scan loan statement</p>
-            <button onClick={() => setScanOpen(false)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">Cancel</button>
+            <p className="text-sm font-bold text-foreground">{t('loans.scanStatement')}</p>
+            <button onClick={() => setScanOpen(false)} className="text-xs font-semibold text-muted-foreground hover:text-foreground">{t('common.cancel')}</button>
           </div>
           <ImageScanTray
             images={scanImages}
             setImages={setScanImages}
             onScan={runLoanScan}
             scanning={scanning}
-            addLabel="Add statement pages"
+            addLabel={t('loans.addStatementPages')}
           />
           <p className="text-[11px] text-muted-foreground mt-2">
-            Add multiple pages if details are spread out (balance/payment on one page, APR/maturity on another).
-            We&apos;ll prefill the form for you to review before saving.
+            {t('loans.scanPagesHint')}
           </p>
           {scanError && <p className="text-xs text-red-600 mt-2">{scanError}</p>}
         </div>
@@ -205,53 +205,51 @@ export default function LoansPanel() {
             <div className="mb-4 flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2">
               <Icon name="CheckCircle2" size={16} className="text-emerald-600 mt-0.5 shrink-0" />
               <p className="text-xs text-emerald-800 dark:text-emerald-300">
-                <span className="font-bold">Loan statement detected.</span> Review and edit
-                the details below before saving — nothing is saved until you confirm. This
-                reads the image only; it is not verified by your lender.
+                <span className="font-bold">{t('loans.statementDetectedTitle')}</span> {t('loans.statementDetectedBody')}
               </p>
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Loan name</label>
-              <input className={inputCls} value={form.loan_name} onChange={(e) => change('loan_name', e.target.value)} placeholder="e.g. Home mortgage" />
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.loanName')}</label>
+              <input className={inputCls} value={form.loan_name} onChange={(e) => change('loan_name', e.target.value)} placeholder={t('loans.loanNamePlaceholder')} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Loan type</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.loanType')}</label>
               <select className={inputCls} value={form.loan_type} onChange={(e) => change('loan_type', e.target.value)}>
-                {LOAN_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                {LOAN_TYPE_VALUES.map((v) => <option key={v} value={v}>{t(`loanTypes.${v}`)}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Remaining principal ($)</label>
-              <input type="number" inputMode="decimal" min="0" step="0.01" className={inputCls} value={form.remaining_principal} onChange={(e) => change('remaining_principal', e.target.value)} placeholder="Amount still owed" />
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.remainingPrincipalUsd')}</label>
+              <input type="number" inputMode="decimal" min="0" step="0.01" className={inputCls} value={form.remaining_principal} onChange={(e) => change('remaining_principal', e.target.value)} placeholder={t('loans.remainingPrincipalPlaceholder')} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">APR (%)</label>
-              <input type="number" inputMode="decimal" min="0" step="0.001" className={inputCls} value={form.apr} onChange={(e) => change('apr', e.target.value)} placeholder="e.g. 6.5" />
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.aprPct')}</label>
+              <input type="number" inputMode="decimal" min="0" step="0.001" className={inputCls} value={form.apr} onChange={(e) => change('apr', e.target.value)} placeholder={t('loans.aprPlaceholder')} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Monthly payment ($)</label>
-              <input type="number" inputMode="decimal" min="0" step="0.01" className={inputCls} value={form.monthly_payment} onChange={(e) => change('monthly_payment', e.target.value)} placeholder="Regular payment" />
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.monthlyPaymentUsd')}</label>
+              <input type="number" inputMode="decimal" min="0" step="0.01" className={inputCls} value={form.monthly_payment} onChange={(e) => change('monthly_payment', e.target.value)} placeholder={t('loans.monthlyPaymentPlaceholder')} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Next payment date</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.nextPaymentDate')}</label>
               <input type="date" className={inputCls} value={form.next_payment_date} onChange={(e) => change('next_payment_date', e.target.value)} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Remaining months (optional)</label>
-              <input type="number" inputMode="numeric" min="1" step="1" className={inputCls} value={form.remaining_months} onChange={(e) => change('remaining_months', e.target.value)} placeholder="For your context" />
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.remainingMonthsOptional')}</label>
+              <input type="number" inputMode="numeric" min="1" step="1" className={inputCls} value={form.remaining_months} onChange={(e) => change('remaining_months', e.target.value)} placeholder={t('loans.remainingMonthsPlaceholder')} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Maturity date (optional)</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.maturityOptional')}</label>
               <input type="date" className={inputCls} value={form.maturity_date} onChange={(e) => change('maturity_date', e.target.value)} />
             </div>
           </div>
 
           <div className="flex justify-end gap-2 mt-4">
-            <button onClick={() => setForm(null)} className="px-4 py-3 min-h-[44px] text-muted-foreground hover:bg-muted rounded-md text-sm font-medium">Cancel</button>
+            <button onClick={() => setForm(null)} className="px-4 py-3 min-h-[44px] text-muted-foreground hover:bg-muted rounded-md text-sm font-medium">{t('common.cancel')}</button>
             <button onClick={save} disabled={busy} className="px-4 py-3 min-h-[44px] bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:bg-primary/90 disabled:opacity-50">
-              {busy ? 'Saving…' : 'Save loan'}
+              {busy ? t('loans.saving') : t('loans.saveLoan')}
             </button>
           </div>
         </div>
@@ -259,7 +257,7 @@ export default function LoansPanel() {
 
       {/* LIST / EMPTY STATE */}
       {loading ? (
-        <div className="p-6 text-muted-foreground text-sm">Loading loans…</div>
+        <div className="p-6 text-muted-foreground text-sm">{t('loans.loadingLoans')}</div>
       ) : loans.length === 0 && !form && !scanOpen ? (
         <div className="p-6 sm:p-8">
           <div className="flex items-start gap-3">
@@ -268,26 +266,24 @@ export default function LoansPanel() {
             </div>
             <div className="min-w-0">
               <h2 className="text-xl sm:text-2xl font-extrabold leading-tight">
-                Scan your loan statement
+                {t('loans.emptyTitle')}
               </h2>
               <p className="text-sm text-muted-foreground mt-2">
-                MoFlow can extract the balance, interest rate, payment, and payoff details
-                for you to review. Then see how much sooner extra payments could make you
-                debt-free.
+                {t('loans.emptyBody')}
               </p>
             </div>
           </div>
           <div className="mt-6 flex flex-col sm:flex-row gap-3">
             <button onClick={openScan} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-primary text-primary-foreground text-base font-bold hover:bg-primary/90 transition-colors">
               <Icon name="Camera" size={20} />
-              Scan loan statement
+              {t('loans.scanStatement')}
             </button>
             <button onClick={openAdd} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl border border-border text-foreground text-base font-semibold hover:bg-muted transition-colors">
               <Icon name="Plus" size={20} />
-              Add loan manually
+              {t('loans.addLoanManually')}
             </button>
           </div>
-          <p className="text-xs text-muted-foreground mt-3">Review everything before it is saved.</p>
+          <p className="text-xs text-muted-foreground mt-3">{t('loans.reviewBeforeSaved')}</p>
           {scanError && <p className="text-xs text-red-600 mt-2">{scanError}</p>}
         </div>
       ) : (
@@ -311,6 +307,7 @@ export default function LoansPanel() {
 }
 
 function LoanRow({ loan, payments, addPayment, onEdit, onDelete, simulatorOpen, onToggleSimulator }) {
+  const { t, formatDuration } = useI18n();
   const [flowBusy, setFlowBusy] = useState(false);
   const [flowNote, setFlowNote] = useState('');
 
@@ -335,7 +332,7 @@ function LoanRow({ loan, payments, addPayment, onEdit, onDelete, simulatorOpen, 
   }, [payments, loan.loan_name]);
 
   const addMonthlyToFlow = async () => {
-    if (!loan.next_payment_date) { setFlowNote('Add a next payment date to this loan first.'); return; }
+    if (!loan.next_payment_date) { setFlowNote(t('loans.addNextDateFirst')); return; }
     setFlowBusy(true);
     setFlowNote('');
     try {
@@ -347,16 +344,16 @@ function LoanRow({ loan, payments, addPayment, onEdit, onDelete, simulatorOpen, 
         is_recurring: true,
       });
       trackProductEvent('loan_payment_added_to_flow', { source_screen: 'cards' });
-      setFlowNote('Monthly payment added to Flow.');
+      setFlowNote(t('loans.monthlyAddedToFlow'));
     } catch (e) {
-      setFlowNote('Could not add to Flow: ' + (e?.message || e));
+      setFlowNote(t('loans.couldNotAddFlow', { msg: e?.message || e }));
     } finally {
       setFlowBusy(false);
     }
   };
 
   const payoffText = baseline.baseline.amortizes
-    ? fmtMonth(baseline.baselinePayoffDate) || `in ${describeMonths(baseline.baseline.months)}`
+    ? fmtMonth(baseline.baselinePayoffDate) || t('loans.inYear', { duration: formatDuration(baseline.baseline.months) })
     : '—';
 
   return (
@@ -366,25 +363,25 @@ function LoanRow({ loan, payments, addPayment, onEdit, onDelete, simulatorOpen, 
           <div className="font-bold text-foreground truncate">
             {loan.loan_name}
             <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-              {typeLabel(loan.loan_type)}
+              {t(`loanTypes.${loan.loan_type}`)}
             </span>
           </div>
           <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-            <span>Balance <span className="font-semibold text-foreground">{money(loan.remaining_principal)}</span></span>
-            <span>APR <span className="font-semibold text-foreground">{Number(loan.apr)}%</span></span>
-            <span>Payment <span className="font-semibold text-foreground">{money(loan.monthly_payment)}</span></span>
+            <span>{t('loans.balance')} <span className="font-semibold text-foreground">{money(loan.remaining_principal)}</span></span>
+            <span>{t('loans.apr')} <span className="font-semibold text-foreground">{Number(loan.apr)}%</span></span>
+            <span>{t('loans.payment')} <span className="font-semibold text-foreground">{money(loan.monthly_payment)}</span></span>
           </div>
           <div className="text-xs text-muted-foreground mt-1">
             {baseline.baseline.amortizes ? (
-              <>Estimated payoff <span className="font-semibold text-foreground">{payoffText}</span> · Estimated remaining interest <span className="font-semibold text-foreground">{money(baseline.baseline.totalInterest)}</span></>
+              <>{t('loans.estimatedPayoff')} <span className="font-semibold text-foreground">{payoffText}</span> · {t('loans.estimatedRemainingInterest')} <span className="font-semibold text-foreground">{money(baseline.baseline.totalInterest)}</span></>
             ) : (
-              <span className="text-amber-700">{baseline.baseline.warning}</span>
+              <span className="text-amber-700">{warnText(t, baseline.baseline)}</span>
             )}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <button onClick={onEdit} className="text-xs font-semibold text-blue-600 hover:text-blue-700">Edit</button>
-          <button onClick={onDelete} className="text-xs font-semibold text-destructive hover:text-destructive/80">Remove</button>
+          <button onClick={onEdit} className="text-xs font-semibold text-blue-600 hover:text-blue-700">{t('loans.edit')}</button>
+          <button onClick={onDelete} className="text-xs font-semibold text-destructive hover:text-destructive/80">{t('loans.remove')}</button>
         </div>
       </div>
 
@@ -394,16 +391,16 @@ function LoanRow({ loan, payments, addPayment, onEdit, onDelete, simulatorOpen, 
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90"
         >
           <Icon name="Calculator" size={16} />
-          {simulatorOpen ? 'Hide simulator' : 'Analyze extra payments'}
+          {simulatorOpen ? t('loans.hideSimulator') : t('loans.analyzeExtra')}
         </button>
         <button
           onClick={addMonthlyToFlow}
           disabled={flowBusy || monthlyAlreadyInFlow}
-          title={monthlyAlreadyInFlow ? 'A recurring payment for this loan already looks present in Flow.' : ''}
+          title={monthlyAlreadyInFlow ? t('loans.alreadyInFlowTitle') : ''}
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg border border-border text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-50"
         >
           <Icon name="CalendarClock" size={16} />
-          {monthlyAlreadyInFlow ? 'Already in Flow' : 'Add monthly payment to Flow'}
+          {monthlyAlreadyInFlow ? t('loans.alreadyInFlow') : t('loans.addMonthlyToFlow')}
         </button>
       </div>
       {flowNote && <p className="text-[11px] text-muted-foreground mt-2">{flowNote}</p>}
@@ -416,6 +413,7 @@ function LoanRow({ loan, payments, addPayment, onEdit, onDelete, simulatorOpen, 
 }
 
 function LoanSimulator({ loan, baseline, addPayment }) {
+  const { t, formatDuration } = useI18n();
   const [oneTime, setOneTime] = useState('');
   const [recurring, setRecurring] = useState('');
   const [active, setActive] = useState(false);
@@ -447,22 +445,22 @@ function LoanSimulator({ loan, baseline, addPayment }) {
 
   const addExtraToFlow = async () => {
     const amt = Number(oneTime) || 0;
-    if (!(amt > 0)) { setExtraNote('Enter a one-time extra amount first.'); return; }
-    if (!extraDate) { setExtraNote('Choose a date for the extra payment.'); return; }
+    if (!(amt > 0)) { setExtraNote(t('loans.enterOneTimeFirst')); return; }
+    if (!extraDate) { setExtraNote(t('loans.chooseDate')); return; }
     setExtraBusy(true);
     setExtraNote('');
     try {
       await addPayment({
-        entity: `${loan.loan_name} — Extra principal`,
+        entity: `${loan.loan_name} — ${t('loans.extraPrincipalSuffix')}`,
         amount: Math.abs(amt),
         payment_date: extraDate,
         status: 'pending',
         is_recurring: false,
       });
       trackProductEvent('loan_payment_added_to_flow', { source_screen: 'cards' });
-      setExtraNote('One-time extra payment added to Flow.');
+      setExtraNote(t('loans.oneTimeAddedToFlow'));
     } catch (e) {
-      setExtraNote('Could not add to Flow: ' + (e?.message || e));
+      setExtraNote(t('loans.couldNotAddFlow', { msg: e?.message || e }));
     } finally {
       setExtraBusy(false);
     }
@@ -477,7 +475,7 @@ function LoanSimulator({ loan, baseline, addPayment }) {
 
   const baselineInterest = baseline.baseline.amortizes ? money(baseline.baseline.totalInterest) : '—';
   const baselinePayoffText = baseline.baseline.amortizes
-    ? (basePayoff || `in ${describeMonths(baseline.baseline.months)}`)
+    ? (basePayoff || t('loans.inYear', { duration: formatDuration(baseline.baseline.months) }))
     : '—';
 
   return (
@@ -485,21 +483,21 @@ function LoanSimulator({ loan, baseline, addPayment }) {
       {/* INPUT AREA */}
       <div className="rounded-xl border border-border bg-card p-4">
         <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
-          Test extra payments
+          {t('loans.testExtraPayments')}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">One-time extra principal ($)</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.oneTimeExtraUsd')}</label>
             <input type="number" inputMode="decimal" min="0" step="0.01" value={oneTime} onChange={(e) => setOneTime(e.target.value)} placeholder="0.00" className={inputCls} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Recurring extra each month ($)</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('loans.recurringExtraUsd')}</label>
             <input type="number" inputMode="decimal" min="0" step="0.01" value={recurring} onChange={(e) => setRecurring(e.target.value)} placeholder="0.00" className={inputCls} />
           </div>
         </div>
         <button onClick={calculate} className="mt-3 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90">
           <Icon name="Sparkles" size={16} />
-          Calculate impact
+          {t('loans.calculateImpact')}
         </button>
       </div>
 
@@ -507,57 +505,57 @@ function LoanSimulator({ loan, baseline, addPayment }) {
       {!active || !result ? (
         <div className="rounded-xl border border-border bg-background/40 p-4">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Estimated payoff (baseline)</span>
+            <span className="text-muted-foreground">{t('loans.estimatedPayoffBaseline')}</span>
             <span className="font-bold text-foreground">{baselinePayoffText}</span>
           </div>
           <div className="flex items-center justify-between text-sm mt-1">
-            <span className="text-muted-foreground">Estimated remaining interest</span>
+            <span className="text-muted-foreground">{t('loans.estimatedRemainingInterest')}</span>
             <span className="font-bold text-foreground">{baselineInterest}</span>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Enter an extra payment above and tap Calculate impact to see the difference.
+            {t('loans.enterExtraHint')}
           </p>
         </div>
       ) : paidNow ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Estimated new payoff</p>
-          <p className="text-2xl sm:text-3xl font-extrabold text-emerald-800 dark:text-emerald-300 mt-1">Paid off right away</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">{t('loans.estimatedNewPayoff')}</p>
+          <p className="text-2xl sm:text-3xl font-extrabold text-emerald-800 dark:text-emerald-300 mt-1">{t('loans.paidOffRightAway')}</p>
           <p className="text-sm text-emerald-800 dark:text-emerald-300 mt-1">
-            That one-time payment clears the balance — the loan is estimated paid off immediately.
+            {t('loans.paidOffBody')}
           </p>
         </div>
       ) : result.scenario?.amortizes ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 p-5 shadow-sm">
           {/* 1. New estimated payoff (primary) */}
-          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Estimated new payoff</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">{t('loans.estimatedNewPayoff')}</p>
           <p className="text-3xl font-extrabold text-emerald-800 dark:text-emerald-300 mt-1 leading-tight">
-            {scenPayoff || `in ${describeMonths(result.scenario.months)}`}
+            {scenPayoff || t('loans.inYear', { duration: formatDuration(result.scenario.months) })}
           </p>
 
           {/* 2. Time saved */}
           {result.monthsSaved > 0 && (
             <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400 mt-1">
-              {describeMonths(result.monthsSaved)} sooner
+              {t('loans.sooner', { months: formatDuration(result.monthsSaved) })}
             </p>
           )}
 
           {/* 3. Interest saved */}
           {result.interestSaved !== null && result.interestSaved > 0 && (
             <p className="text-sm text-foreground mt-2">
-              Estimated interest saved <span className="font-extrabold text-emerald-700 dark:text-emerald-400">{money(result.interestSaved)}</span>
+              {t('loans.interestSaved')} <span className="font-extrabold text-emerald-700 dark:text-emerald-400">{money(result.interestSaved)}</span>
             </p>
           )}
 
           {/* 4. Baseline comparison (secondary) */}
           {basePayoff && scenPayoff && (
             <p className="text-xs text-muted-foreground mt-3">
-              Baseline payoff {basePayoff} → {scenPayoff}
+              {t('loans.baselineComparison', { from: basePayoff, to: scenPayoff })}
             </p>
           )}
         </div>
       ) : (
         <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm text-amber-800 dark:text-amber-300">
-          {result.scenario?.warning || 'This scenario does not pay off within the modeled horizon.'}
+          {warnText(t, result.scenario) || t('loans.scenarioNoPayoff')}
         </div>
       )}
 
@@ -565,17 +563,17 @@ function LoanSimulator({ loan, baseline, addPayment }) {
       {active && result && (Number(oneTime) || 0) > 0 && (
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-            Add this one-time extra payment to Flow
+            {t('loans.addOneTimeToFlow')}
           </p>
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <input type="date" value={extraDate} onChange={(e) => setExtraDate(e.target.value)} className="border border-border rounded-md p-2.5 text-sm bg-background text-foreground min-h-[44px]" />
             <button onClick={addExtraToFlow} disabled={extraBusy} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[44px] rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50">
               <Icon name="CalendarPlus" size={16} />
-              Add this payment to Flow
+              {t('loans.addThisToFlow')}
             </button>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            This adds a one-time commitment to Flow. It does not change your regular loan payment.
+            {t('loans.oneTimeFlowNote')}
           </p>
           {extraNote && <p className="text-xs text-muted-foreground mt-1">{extraNote}</p>}
         </div>
@@ -583,7 +581,7 @@ function LoanSimulator({ loan, baseline, addPayment }) {
 
       {/* DISCLOSURE (secondary) */}
       {active && result && (
-        <p className="text-xs text-muted-foreground">{DISCLOSURE}</p>
+        <p className="text-xs text-muted-foreground">{t('loans.disclosure')}</p>
       )}
     </div>
   );

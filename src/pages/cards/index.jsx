@@ -8,6 +8,7 @@ import LoansPanel from '../../components/LoansPanel';
 import useCreditCards from '../../hooks/useCreditCards';
 import useOnboarding from '../../hooks/useOnboarding';
 import { trackProductEvent } from '../../lib/analytics';
+import { useI18n } from '../../i18n';
 import {
   nextDueDate,
   daysUntil,
@@ -22,6 +23,7 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractio
 // obligation on its due date).
 const Cards = () => {
   const { cards, loading, saveCard, deleteCard, setPaid, feeSavingsTotals } = useCreditCards();
+  const { t } = useI18n();
 
   const navigate = useNavigate();
   const { onboarding, updateOnboarding } = useOnboarding();
@@ -101,27 +103,27 @@ const Cards = () => {
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-                  Card saved
+                  {t('cards.cardSaved')}
                 </p>
                 <p className="font-extrabold text-foreground mt-0.5">
-                  Can you comfortably cover this statement?
+                  {t('cards.coverStatement')}
                 </p>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Check your available cash and upcoming income in Flow.
+                  {t('cards.checkCashFlow')}
                 </p>
                 <div className="mt-4 flex flex-col-reverse sm:flex-row gap-2">
                   <button
                     onClick={dismissBridge}
                     className="px-5 py-3 min-h-[48px] rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
                   >
-                    Not now
+                    {t('cards.notNow')}
                   </button>
                   <button
                     onClick={goToFlow}
                     className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
                   >
                     <Icon name="ArrowRight" size={18} />
-                    Check my Flow
+                    {t('cards.checkMyFlow')}
                   </button>
                 </div>
               </div>
@@ -137,7 +139,7 @@ const Cards = () => {
               activeTab === 'cards' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            Credit Cards
+            {t('cards.creditCards')}
           </button>
           <button
             onClick={() => switchTab('loans')}
@@ -145,7 +147,7 @@ const Cards = () => {
               activeTab === 'loans' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            Loans
+            {t('cards.loans')}
           </button>
         </div>
 
@@ -169,12 +171,12 @@ const Cards = () => {
         {hasCards && (
           <div className="mb-6 flex items-center justify-between gap-4 bg-gradient-to-r from-emerald-50 to-emerald-100/40 dark:from-emerald-950/20 dark:to-emerald-900/10 border border-emerald-200 rounded-xl p-5">
             <div>
-              <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Estimated financing avoided</p>
+              <p className="text-xs font-bold text-emerald-700 uppercase tracking-wider">{t('cards.financingAvoided')}</p>
               <p className="text-3xl font-extrabold text-emerald-700 mt-1">{money(feeSavingsTotals?.all)}</p>
               <p className="text-xs text-emerald-600 mt-1">
                 {feeSavingsTotals?.count > 0
-                  ? `${money(feeSavingsTotals?.thisYear)} this year · ${feeSavingsTotals?.count} statement${feeSavingsTotals?.count === 1 ? '' : 's'} marked paid in full`
-                  : 'Mark a statement paid in full to start estimating.'}
+                  ? t('cards.financingThisYear', { amount: money(feeSavingsTotals?.thisYear), count: feeSavingsTotals?.count })
+                  : t('cards.markToEstimate')}
               </p>
             </div>
             <div className="text-emerald-500 shrink-0">
@@ -187,9 +189,7 @@ const Cards = () => {
 
         {hasCards && (
           <p className="text-[11px] text-muted-foreground mt-3">
-            Estimated financing avoided is an educational estimate of the interest you likely avoided by paying each
-            statement in full — calculated from each card&apos;s APR when known (about 24% assumed otherwise), credited when
-            you mark a statement paid in full. It is an estimate, not an audited amount of money saved.
+            {t('cards.financingDisclosure')}
           </p>
         )}
           </>
@@ -200,7 +200,9 @@ const Cards = () => {
 };
 
 // Zero-card onboarding hero: scan CTA is the first, most prominent thing.
-const EmptyStateHero = ({ onScan }) => (
+const EmptyStateHero = ({ onScan }) => {
+  const { t } = useI18n();
+  return (
   <div className="mb-6 rounded-2xl border border-border bg-card shadow-sm p-6 sm:p-8">
     <div className="flex items-start gap-3">
       <div className="bg-primary/10 p-3 rounded-xl shrink-0">
@@ -208,11 +210,10 @@ const EmptyStateHero = ({ onScan }) => (
       </div>
       <div className="min-w-0">
         <h1 className="text-2xl sm:text-3xl font-extrabold leading-tight">
-          Never miss another credit-card payment.
+          {t('cards.emptyTitle')}
         </h1>
         <p className="text-sm text-muted-foreground mt-2">
-          Scan your statement and MoFlow will help you understand what is due, when it is due,
-          and what carrying the balance could cost.
+          {t('cards.emptyBody')}
         </p>
       </div>
     </div>
@@ -222,17 +223,19 @@ const EmptyStateHero = ({ onScan }) => (
       className="mt-6 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 min-h-[52px] rounded-xl bg-primary text-primary-foreground text-base font-bold hover:bg-primary/90 transition-colors"
     >
       <Icon name="Camera" size={20} />
-      Scan statement
+      {t('cards.scanStatement')}
     </button>
 
     <p className="text-xs text-muted-foreground mt-3">
-      Review everything before it is saved.
+      {t('cards.reviewBeforeSaved')}
     </p>
   </div>
-);
+  );
+};
 
 // Existing-user hero: compact summary emphasizing the next actionable payment.
 const ExistingUserHero = ({ nextObligation, onScan }) => {
+  const { t } = useI18n();
   const card = nextObligation?.card;
   const due = nextObligation?.due;
   const dLeft = daysUntil(due);
@@ -246,7 +249,7 @@ const ExistingUserHero = ({ nextObligation, onScan }) => {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-            {nextObligation ? 'Next card payment' : 'Your cards'}
+            {nextObligation ? t('cards.nextCardPayment') : t('cards.yourCards')}
           </p>
 
           {nextObligation ? (
@@ -257,34 +260,32 @@ const ExistingUserHero = ({ nextObligation, onScan }) => {
               <p className="text-3xl font-extrabold text-foreground mt-1">
                 {money(bal)}
                 <span className="text-sm font-semibold text-muted-foreground ml-2">
-                  statement balance
+                  {t('cards.statementBalance')}
                 </span>
               </p>
               <p className="text-sm text-foreground mt-1">
-                Due <span className="font-bold">{format(due, 'MMM d')}</span>
+                {t('cards.dueDate', { date: format(due, 'MMM d') }).split('{')[0]}<span className="font-bold">{format(due, 'MMM d')}</span>
                 {dLeft !== null && (
                   <span className="text-muted-foreground">
                     {' '}
-                    ({dLeft === 0 ? 'today' : dLeft === 1 ? 'tomorrow' : `in ${dLeft} days`})
+                    ({dLeft === 0 ? t('cards.dueToday') : dLeft === 1 ? t('cards.dueTomorrow') : t('cards.dueInDays', { count: dLeft })})
                   </span>
                 )}
               </p>
               {min > 0 && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  Minimum due: <span className="font-semibold">{money(min)}</span>
+                  {t('cards.minimumDue')} <span className="font-semibold">{money(min)}</span>
                 </p>
               )}
               {financingEstimate !== null && (
                 <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
-                  Paying the full statement by the due date may avoid an estimated{' '}
-                  <span className="font-semibold">{money(financingEstimate)}</span> in financing
-                  over one month at {apr}% APR — subject to your card&apos;s terms.
+                  {t('cards.financingWarning', { amount: money(financingEstimate), apr })}
                 </p>
               )}
             </>
           ) : (
             <p className="text-sm text-muted-foreground mt-1">
-              All statements are marked paid or have no balance due. Scan a new statement when it arrives.
+              {t('cards.allPaid')}
             </p>
           )}
         </div>
@@ -294,7 +295,7 @@ const ExistingUserHero = ({ nextObligation, onScan }) => {
           className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
         >
           <Icon name="Camera" size={18} />
-          Scan statement
+          {t('cards.scanStatement')}
         </button>
       </div>
     </div>

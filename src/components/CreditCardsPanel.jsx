@@ -13,6 +13,7 @@ import {
 import { authHeader } from '../lib/apiClient';
 import { trackProductEvent } from '../lib/analytics';
 import ImageScanTray from './ImageScanTray';
+import { useI18n } from '../i18n';
 
 const money = (n) =>
   `$${Number(n || 0).toLocaleString('en-US', {
@@ -43,6 +44,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
   { cards, loading, onSave, onDelete, onSetPaid, onSaved },
   ref
 ) {
+  const { t } = useI18n();
   const [form, setForm] = useState(null); // null = closed
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -94,7 +96,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
 
   const save = async () => {
     if (!form.card_name.trim()) {
-      alert('Card name is required.');
+      alert(t('cards.cardNameRequired'));
       return;
     }
 
@@ -116,19 +118,19 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
       // Let the Cards page surface the "Check my Flow" bridge after a save.
       onSaved?.(payload);
     } catch (e) {
-      alert('Failed to save card: ' + (e?.message || e));
+      alert(t('cards.saveFailed', { msg: e?.message || e }));
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async (c) => {
-    if (!window.confirm(`Remove ${c.card_name}?`)) return;
+    if (!window.confirm(t('cards.removeConfirm', { name: c.card_name }))) return;
 
     try {
       await onDelete(c.id);
     } catch (e) {
-      alert('Failed to remove: ' + (e?.message || e));
+      alert(t('cards.removeFailed', { msg: e?.message || e }));
     }
   };
 
@@ -180,7 +182,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
       setScanned(true);
       trackProductEvent('card_scan_completed', { source_screen: 'cards' });
     } catch (err) {
-      alert('Could not read the statement — enter the numbers manually.\n\n' + (err?.message || err));
+      alert(t('cards.scanFailed') + '\n\n' + (err?.message || err));
     } finally {
       setScanning(false);
     }
@@ -199,7 +201,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
     <div className="bg-card rounded-xl border border-border shadow-sm mb-8 overflow-hidden">
       <div className="px-5 py-3 border-b border-border flex items-center justify-between">
         <div className="font-bold text-foreground">
-          Credit cards — financing guard
+          {t('cards.financingGuard')}
         </div>
 
         {!form && (
@@ -207,7 +209,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
             onClick={openAdd}
             className="text-sm font-semibold text-blue-600 hover:text-blue-700"
           >
-            + Add card
+            {t('cards.addCard')}
           </button>
         )}
       </div>
@@ -221,11 +223,10 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
               setImages={setScanImages}
               onScan={runCardScan}
               scanning={scanning}
-              addLabel="Scan or upload statement"
+              addLabel={t('cards.scanOrUpload')}
             />
             <p className="text-[11px] text-muted-foreground mt-1">
-              Add the statement summary — you can add multiple pages. We&apos;ll fill
-              the numbers below for you to confirm before saving.
+              {t('cards.scanHint')}
             </p>
           </div>
 
@@ -238,9 +239,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
                 className="text-emerald-600 mt-0.5 shrink-0"
               />
               <p className="text-xs text-emerald-800 dark:text-emerald-300">
-                <span className="font-bold">Statement detected.</span> Review
-                the extracted details below and edit anything before saving —
-                nothing is saved until you confirm.
+                <span className="font-bold">{t('cards.statementDetected')}</span> {t('cards.statementDetectedBody')}
               </p>
             </div>
           )}
@@ -249,7 +248,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
             {/* CARD NAME */}
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                Card name
+                {t('cards.cardName')}
               </label>
 
               <input
@@ -257,7 +256,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
                 className={inputCls}
                 value={form.card_name}
                 onChange={(e) => change('card_name', e.target.value)}
-                placeholder="e.g. Banco General - Star CC"
+                placeholder={t('cards.cardNamePlaceholder')}
               />
 
               <datalist id="card-suggestions">
@@ -270,7 +269,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
             {/* CURRENT BALANCE */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                Current balance ($)
+                {t('cards.currentBalanceUsd')}
               </label>
 
               <input
@@ -282,14 +281,14 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
                 onChange={(e) =>
                   change('current_balance', e.target.value)
                 }
-                placeholder="Total currently owed"
+                placeholder={t('cards.currentBalancePlaceholder')}
               />
             </div>
 
             {/* STATEMENT BALANCE */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                Statement balance ($)
+                {t('cards.statementBalanceUsd')}
               </label>
 
               <input
@@ -301,14 +300,14 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
                 onChange={(e) =>
                   change('statement_balance', e.target.value)
                 }
-                placeholder="Pay in full to avoid interest"
+                placeholder={t('cards.statementBalancePlaceholder')}
               />
             </div>
 
             {/* MINIMUM PAYMENT */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                Minimum payment ($)
+                {t('cards.minimumPaymentUsd')}
               </label>
 
               <input
@@ -320,14 +319,14 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
                 onChange={(e) =>
                   change('minimum_payment', e.target.value)
                 }
-                placeholder="Avoids the late fee"
+                placeholder={t('cards.minimumPaymentPlaceholder')}
               />
             </div>
 
             {/* APR */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                APR (%)
+                {t('cards.aprPct')}
               </label>
 
               <input
@@ -337,14 +336,14 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
                 className={inputCls}
                 value={form.apr}
                 onChange={(e) => change('apr', e.target.value)}
-                placeholder="e.g. 24.99"
+                placeholder={t('cards.aprPlaceholder')}
               />
             </div>
 
             {/* DUE DAY */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                Payment due day (1-31)
+                {t('cards.dueDayLabel')}
               </label>
 
               <input
@@ -360,7 +359,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
             {/* CLOSE DAY */}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">
-                Statement close day (1-31)
+                {t('cards.closeDayLabel')}
               </label>
 
               <input
@@ -380,23 +379,14 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
           {formFinancingEstimate !== null && (
             <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950/20 px-3 py-2">
               <p className="text-xs text-amber-800 dark:text-amber-300">
-                <span className="font-bold">Estimate:</span> carrying this{' '}
-                {money(form.statement_balance)} statement could cost about{' '}
-                <span className="font-bold">
-                  {money(formFinancingEstimate)}
-                </span>{' '}
-                in financing over one month at {Number(form.apr)}% APR. Paying
-                the statement in full by the due date may avoid this cost,
-                subject to your card&apos;s terms. This is an educational
-                one-month estimate, not your total financing cost.
+                <span className="font-bold">{t('cards.estimatePrefix')}</span> {t('cards.financingEstimateLive', { balance: money(form.statement_balance), cost: money(formFinancingEstimate), apr: Number(form.apr) })}
               </p>
             </div>
           )}
 
           {/* REMINDER + FLOW communication */}
           <p className="mt-3 text-[11px] text-muted-foreground">
-            Save the card so MoFlow can track its due date, include it in your
-            payment planning, and factor the statement balance into Flow.
+            {t('cards.saveCardNote')}
           </p>
 
           <div className="flex justify-end gap-2 mt-4">
@@ -404,7 +394,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
               onClick={() => setForm(null)}
               className="px-4 py-3 min-h-[44px] text-muted-foreground hover:bg-muted rounded-md text-sm font-medium"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
 
             <button
@@ -412,7 +402,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
               disabled={busy}
               className="px-4 py-3 min-h-[44px] bg-primary text-primary-foreground rounded-md text-sm font-semibold hover:bg-primary/90 disabled:opacity-50"
             >
-              {busy ? 'Saving…' : 'Save card'}
+              {busy ? t('cards.saving') : t('cards.saveCard')}
             </button>
           </div>
         </div>
@@ -420,12 +410,11 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
 
       {loading ? (
         <div className="p-6 text-muted-foreground text-sm">
-          Loading cards…
+          {t('cards.loadingCards')}
         </div>
       ) : cards.length === 0 ? (
         <div className="p-6 text-muted-foreground text-sm italic">
-          No cards yet — add one to track statement balances and never pay a
-          financing fee.
+          {t('cards.noCardsYet')}
         </div>
       ) : (
         <div className="divide-y divide-border">
@@ -447,6 +436,7 @@ const CreditCardsPanel = forwardRef(function CreditCardsPanel(
 export default CreditCardsPanel;
 
 function CardRow({ c, onEdit, onDelete, onSetPaid }) {
+  const { t } = useI18n();
   const due = nextDueDate(c.due_day);
   const dLeft = daysUntil(due);
 
@@ -470,7 +460,7 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
     try {
       await onSetPaid?.(c.id, !paid);
     } catch (e) {
-      alert('Failed to update: ' + (e?.message || e));
+      alert(t('cards.updateFailed', { msg: e?.message || e }));
     }
   };
 
@@ -484,7 +474,7 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
         {/* PAID TOGGLE */}
         <button
           onClick={togglePaid}
-          title={paid ? 'Mark as not paid' : 'Mark this statement paid'}
+          title={paid ? t('cards.markNotPaid') : t('cards.markPaidTitle')}
           className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center transition-all shrink-0 ${
             paid
               ? 'bg-green-500 border-green-500 text-white'
@@ -507,7 +497,7 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
             <p className="text-xs text-muted-foreground mt-0.5">
               {currentBalance > 0 && (
                 <>
-                  Current balance{' '}
+                  {t('cards.currentBalanceInline')}{' '}
                   <span className="font-semibold">
                     {money(currentBalance)}
                   </span>
@@ -518,7 +508,7 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
 
               {apr > 0 && (
                 <>
-                  APR{' '}
+                  {t('cards.aprInline')}{' '}
                   <span className="font-semibold">
                     {apr.toLocaleString('en-US', {
                       maximumFractionDigits: 3,
@@ -532,12 +522,11 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
 
           {paid ? (
             <p className="text-sm mt-0.5 text-green-700 dark:text-green-400">
-              ✓ Paid — {money(bal)} cleared. Enter the next statement when it
-              arrives.
+              {t('cards.paidCleared', { amount: money(bal) })}
             </p>
           ) : due ? (
             <p className={`text-sm mt-0.5 ${dueColor}`}>
-              Pay <span className="font-bold">{money(bal)}</span> by{' '}
+              {t('cards.pay')} <span className="font-bold">{money(bal)}</span> {t('cards.by')}{' '}
               <span className="font-bold">{format(due, 'MMM d')}</span>
 
               {dLeft !== null && (
@@ -545,43 +534,37 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
                   {' '}
                   (
                   {dLeft === 0
-                    ? 'today'
+                    ? t('cards.dueToday')
                     : dLeft === 1
-                      ? 'tomorrow'
-                      : `in ${dLeft} days`}
+                      ? t('cards.dueTomorrow')
+                      : t('cards.dueInDays', { count: dLeft })}
                   )
                 </span>
               )}{' '}
-              in full to help avoid purchase financing charges, subject to your
-              card&apos;s terms.
+              {t('cards.inFullAvoid')}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground mt-0.5">
-              Set a due day to activate the guard.
+              {t('cards.setDueDay')}
             </p>
           )}
 
           {!paid && min > 0 && (
             <p className="text-xs text-muted-foreground mt-0.5">
-              Paying at least the minimum{' '}
-              <span className="font-semibold">{money(min)}</span> by the due
-              date generally helps avoid late-payment penalties (the remaining
-              balance still accrues interest).
+              {t('cards.minimumNote', { amount: money(min) })}
             </p>
           )}
 
           {!paid && financingEstimate !== null && (
             <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-              Estimated financing to carry this statement one month: about{' '}
-              <span className="font-semibold">{money(financingEstimate)}</span>{' '}
-              at {apr}% APR (educational one-month estimate, not the total).
+              {t('cards.financingCarry', { amount: money(financingEstimate), apr })}
             </p>
           )}
 
           {!paid && bal > 0 && due && (
             <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1 flex items-center gap-1">
               <Icon name="CheckCircle2" size={12} />
-              This statement is included in Flow.
+              {t('cards.includedInFlow')}
             </p>
           )}
         </div>
@@ -592,14 +575,14 @@ function CardRow({ c, onEdit, onDelete, onSetPaid }) {
           onClick={onEdit}
           className="text-xs font-semibold text-blue-600 hover:text-blue-700"
         >
-          Edit
+          {t('cards.edit')}
         </button>
 
         <button
           onClick={onDelete}
           className="text-xs font-semibold text-destructive hover:text-destructive/80"
         >
-          Remove
+          {t('cards.remove')}
         </button>
       </div>
     </div>

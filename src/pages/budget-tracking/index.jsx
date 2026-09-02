@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import useTransactions from '../../hooks/useTransactions';
 import useBudgets from '../../hooks/useBudgets';
+import { useI18n } from '../../i18n';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -44,6 +45,9 @@ const INITIAL_BUDGETS = {
 };
 
 const Budget = () => {
+  const { t, tCategory, formatDate } = useI18n();
+  // Locale-aware month name (stored dates unchanged; display only).
+  const monthLabel = (i) => formatDate(new Date(2000, i, 1), { month: 'long' });
   const [viewDate, setViewDate] = useState(new Date());
 
   // Budgets now persist to Supabase (see useBudgets). Legacy localStorage
@@ -114,7 +118,7 @@ const Budget = () => {
   };
 
   const deleteCategory = (category) => {
-    if (window.confirm(`Are you sure you want to delete ${category}?`)) {
+    if (window.confirm(t('budget.deleteCategoryConfirm', { category: tCategory(category) }))) {
       setTempBudgets(prev => {
         const next = { ...prev };
         delete next[category];
@@ -136,14 +140,16 @@ const Budget = () => {
   };
 
   // --- DATE LOGIC ---
-  const { startDate, endDate, label, monthName } = useMemo(() => {
+  const { startDate, endDate, monthIndex, year } = useMemo(() => {
      const y = viewDate.getFullYear();
      const m = viewDate.getMonth();
      const start = new Date(y, m, 1).toISOString().split('T')[0];
      const end = new Date(y, m + 1, 0).toISOString().split('T')[0];
-     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-     return { startDate: start, endDate: end, label: `${monthNames[m]} ${y}`, monthName: monthNames[m] };
+     return { startDate: start, endDate: end, monthIndex: m, year: y };
   }, [viewDate]);
+  // Derived in render so they follow the active locale.
+  const monthName = monthLabel(monthIndex);
+  const label = `${monthName} ${year}`;
 
   // --- FETCH DATA ---
   const filters = useMemo(() => ({ dateRange: 'custom', startDate, endDate }), [startDate, endDate]);
@@ -228,7 +234,7 @@ const Budget = () => {
   if (loading || budgetsLoading) return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8">
       <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mb-4"></div>
-      <p className="text-muted-foreground font-bold">Loading Budget Data...</p>
+      <p className="text-muted-foreground font-bold">{t('budget.loading')}</p>
     </div>
   );
 
@@ -245,9 +251,9 @@ const Budget = () => {
                 <Icon name="Calendar" size={24} />
              </div>
              <div>
-                <h1 className="text-xl font-bold text-foreground leading-tight">Monthly Budget</h1>
+                <h1 className="text-xl font-bold text-foreground leading-tight">{t('budget.title')}</h1>
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-                  Viewing: <span className="text-primary font-bold">{label}</span>
+                  {t('budget.viewing')} <span className="text-primary font-bold">{label}</span>
                 </p>
              </div>
           </div>
@@ -256,18 +262,18 @@ const Budget = () => {
             <div className="mr-4 border-r border-border pr-4 flex items-center">
                 {!isEditing ? (
                     <Button variant="secondary" onClick={startEditing} iconName="Edit2">
-                        Edit Budget
+                        {t('budget.editBudget')}
                     </Button>
                 ) : (
                     <div className="flex items-center gap-2">
                         <Button variant="secondary" onClick={() => setShowAddModal(true)} iconName="Plus">
-                            Add Category
+                            {t('budget.addCategory')}
                         </Button>
                         <Button variant="destructive" onClick={cancelEditing} iconName="X">
-                            Cancel
+                            {t('common.cancel')}
                         </Button>
                         <Button variant="default" onClick={saveBudgets} iconName="Save">
-                            Save Changes
+                            {t('budget.saveChanges')}
                         </Button>
                     </div>
                 )}
@@ -280,7 +286,7 @@ const Budget = () => {
                 onChange={(e) => setSpecificDate(parseInt(e.target.value), null)}
                 className="bg-card border border-input text-foreground text-sm rounded-md p-2 font-semibold focus:ring-2 focus:ring-ring outline-none"
             >
-                {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m, i) => (<option key={m} value={i}>{m}</option>))}
+                {Array.from({ length: 12 }, (_, i) => (<option key={i} value={i}>{monthLabel(i)}</option>))}
             </select>
 
             <select
@@ -299,10 +305,10 @@ const Budget = () => {
         {showAddModal && (
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm animate-in fade-in">
                 <div className="bg-card rounded-xl shadow-xl p-6 w-full max-w-md border border-border">
-                    <h3 className="text-lg font-bold text-foreground mb-4">Add New Budget Category</h3>
+                    <h3 className="text-lg font-bold text-foreground mb-4">{t('budget.addNewCategory')}</h3>
 
                     <div className="mb-4">
-                        <label className="block text-sm font-medium text-muted-foreground mb-1">Bucket</label>
+                        <label className="block text-sm font-medium text-muted-foreground mb-1">{t('budget.bucket')}</label>
                         <div className="flex gap-2 p-1 bg-muted rounded-lg">
                             {['NEEDS', 'WANTS', 'SAVINGS'].map(b => (
                                 <button
@@ -310,32 +316,32 @@ const Budget = () => {
                                     onClick={() => setNewCatBucket(b)}
                                     className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all ${newCatBucket === b ? 'bg-card shadow-sm text-primary' : 'text-muted-foreground hover:text-foreground'}`}
                                 >
-                                    {b}
+                                    {t(`buckets.${b.toLowerCase()}`)}
                                 </button>
                             ))}
                         </div>
                     </div>
 
                     <div className="mb-4">
-                        <label className="block text-sm font-medium text-muted-foreground mb-1">Category Name</label>
+                        <label className="block text-sm font-medium text-muted-foreground mb-1">{t('budget.categoryName')}</label>
                         <select
                             value={newCatName}
                             onChange={(e) => setNewCatName(e.target.value)}
                             className="block w-full border border-input rounded-md shadow-sm p-2 mb-2 text-sm bg-background focus:ring-2 focus:ring-ring outline-none"
                         >
-                            <option value="">-- Select from Menu --</option>
-                            {MASTER_CATEGORIES[newCatBucket].map(cat => (<option key={cat} value={cat}>{cat}</option>))}
+                            <option value="">{t('budget.selectFromMenu')}</option>
+                            {MASTER_CATEGORIES[newCatBucket].map(cat => (<option key={cat} value={cat}>{tCategory(cat)}</option>))}
                         </select>
                         <Input
                             type="text"
-                            placeholder="Or type custom name..."
+                            placeholder={t('budget.customNamePlaceholder')}
                             value={newCatName}
                             onChange={(e) => setNewCatName(e.target.value)}
                         />
                     </div>
 
                     <div className="mb-6">
-                        <label className="block text-sm font-medium text-muted-foreground mb-1">Monthly Limit ($)</label>
+                        <label className="block text-sm font-medium text-muted-foreground mb-1">{t('budget.monthlyLimit')}</label>
                         <Input
                             type="number"
                             value={newCatLimit}
@@ -345,8 +351,8 @@ const Budget = () => {
                     </div>
 
                     <div className="flex justify-end gap-3">
-                        <Button variant="ghost" onClick={() => setShowAddModal(false)}>Cancel</Button>
-                        <Button variant="default" onClick={addNewCategory}>Add Category</Button>
+                        <Button variant="ghost" onClick={() => setShowAddModal(false)}>{t('common.cancel')}</Button>
+                        <Button variant="default" onClick={addNewCategory}>{t('budget.addCategory')}</Button>
                     </div>
                 </div>
             </div>
@@ -358,7 +364,7 @@ const Budget = () => {
                 <div className="flex-1 w-full">
                     <h2 className="text-lg font-bold text-muted-foreground mb-2 flex items-center gap-2">
                         <Icon name="DollarSign" size={20} className="text-muted-foreground"/>
-                        Total Budget ({monthName}) {isEditing && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Editing Mode</span>}
+                        {t('budget.totalBudget', { month: monthName })} {isEditing && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{t('budget.editingMode')}</span>}
                     </h2>
                     <div className="flex items-end gap-2 mb-2">
                         <span className="text-4xl font-extrabold text-foreground">${budgetStats.total.spent.toLocaleString()}</span>
@@ -378,9 +384,9 @@ const Budget = () => {
                         const pct = b.limit > 0 ? (b.spent / b.limit) * 100 : 0;
                         return (
                             <div key={key} className={`bg-background rounded-lg p-4 min-w-[140px] border ${isEditing ? 'border-primary/20 bg-primary/5' : 'border-border'}`}>
-                                <span className={`text-xs font-bold uppercase tracking-wider block mb-1`} style={{color: b.color}}>{key}</span>
+                                <span className={`text-xs font-bold uppercase tracking-wider block mb-1`} style={{color: b.color}}>{t(`buckets.${key.toLowerCase()}`)}</span>
                                 <div className="text-xl font-bold text-foreground">${b.spent.toLocaleString()}</div>
-                                <div className="text-xs text-muted-foreground mb-2">Target: ${b.limit.toLocaleString()}</div>
+                                <div className="text-xs text-muted-foreground mb-2">{t('budget.target', { amount: `$${b.limit.toLocaleString()}` })}</div>
                                 <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
                                     <div className="h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: b.color }}></div>
                                 </div>
@@ -393,9 +399,9 @@ const Budget = () => {
 
         {/* COLUMNS */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <BudgetColumn title="NEEDS" bucket="NEEDS" data={budgetStats} iconName="CheckCircle" iconColor="text-emerald-500" headerColor="bg-emerald-50/50 text-emerald-800 border-emerald-100" isEditing={isEditing} onUpdate={handleBudgetChange} onDelete={deleteCategory} />
-            <BudgetColumn title="WANTS" bucket="WANTS" data={budgetStats} iconName="TrendingUp" iconColor="text-amber-500" headerColor="bg-amber-50/50 text-amber-800 border-amber-100" isEditing={isEditing} onUpdate={handleBudgetChange} onDelete={deleteCategory} />
-            <BudgetColumn title="SAVINGS" bucket="SAVINGS" data={budgetStats} iconName="DollarSign" iconColor="text-blue-500" headerColor="bg-blue-50/50 text-blue-800 border-blue-100" isEditing={isEditing} onUpdate={handleBudgetChange} onDelete={deleteCategory} />
+            <BudgetColumn title={t('buckets.needs')} bucket="NEEDS" data={budgetStats} iconName="CheckCircle" iconColor="text-emerald-500" headerColor="bg-emerald-50/50 text-emerald-800 border-emerald-100" isEditing={isEditing} onUpdate={handleBudgetChange} onDelete={deleteCategory} />
+            <BudgetColumn title={t('buckets.wants')} bucket="WANTS" data={budgetStats} iconName="TrendingUp" iconColor="text-amber-500" headerColor="bg-amber-50/50 text-amber-800 border-amber-100" isEditing={isEditing} onUpdate={handleBudgetChange} onDelete={deleteCategory} />
+            <BudgetColumn title={t('buckets.savings')} bucket="SAVINGS" data={budgetStats} iconName="DollarSign" iconColor="text-blue-500" headerColor="bg-blue-50/50 text-blue-800 border-blue-100" isEditing={isEditing} onUpdate={handleBudgetChange} onDelete={deleteCategory} />
         </div>
       </div>
     </div>
@@ -403,6 +409,7 @@ const Budget = () => {
 };
 
 const BudgetColumn = ({ title, bucket, data, iconName, iconColor, headerColor, isEditing, onUpdate, onDelete }) => {
+    const { t, tCategory } = useI18n();
     const [expandedCat, setExpandedCat] = useState(null);
     const toggleExpand = (cat) => setExpandedCat(expandedCat === cat ? null : cat);
 
@@ -445,7 +452,7 @@ const BudgetColumn = ({ title, bucket, data, iconName, iconColor, headerColor, i
                                                 <div
                                                     onClick={(e) => { e.stopPropagation(); onUpdate(cat, 'active', !isActive); }}
                                                     className={`cursor-pointer p-1 rounded-md transition-colors ${isActive ? 'bg-green-100 text-green-600' : 'bg-muted text-muted-foreground'}`}
-                                                    title={isActive ? "Disable Category" : "Enable Category"}
+                                                    title={isActive ? t('budget.disableCategory') : t('budget.enableCategory')}
                                                 >
                                                     <Icon name="Power" size={14} strokeWidth={3} />
                                                 </div>
@@ -455,7 +462,7 @@ const BudgetColumn = ({ title, bucket, data, iconName, iconColor, headerColor, i
                                                 )
                                             )}
 
-                                            <span className={`text-sm font-medium ${isActive ? 'text-foreground' : 'text-muted-foreground line-through'}`}>{cat}</span>
+                                            <span className={`text-sm font-medium ${isActive ? 'text-foreground' : 'text-muted-foreground line-through'}`}>{tCategory(cat)}</span>
                                         </div>
 
                                         {isEditing ? (
@@ -471,7 +478,7 @@ const BudgetColumn = ({ title, bucket, data, iconName, iconColor, headerColor, i
                                             {isEditing ? (
                                                 isActive && (
                                                     <div className="flex items-center gap-2 w-full animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                                                        <span className="text-xs text-muted-foreground font-bold">Limit: $</span>
+                                                        <span className="text-xs text-muted-foreground font-bold">{t('budget.limit')}</span>
                                                         <input
                                                             type="number"
                                                             value={item.originalLimit}
@@ -483,8 +490,8 @@ const BudgetColumn = ({ title, bucket, data, iconName, iconColor, headerColor, i
                                             ) : (
                                                 isActive && (
                                                     <>
-                                                        <span className="text-xs text-muted-foreground">Budget: ${item.limit.toLocaleString()}</span>
-                                                        <span className={`text-xs ${isOver ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>{isOver ? `+$${(item.spent - item.limit).toLocaleString()}` : `${Math.abs(item.limit - item.spent).toLocaleString()} left`}</span>
+                                                        <span className="text-xs text-muted-foreground">{t('budget.budgetLabel', { amount: `$${item.limit.toLocaleString()}` })}</span>
+                                                        <span className={`text-xs ${isOver ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>{isOver ? `+$${(item.spent - item.limit).toLocaleString()}` : t('budget.leftSuffix', { amount: `$${Math.abs(item.limit - item.spent).toLocaleString()}` })}</span>
                                                     </>
                                                 )
                                             )}
@@ -499,12 +506,12 @@ const BudgetColumn = ({ title, bucket, data, iconName, iconColor, headerColor, i
 
                                 {isExpanded && !isEditing && item.transactions.length > 0 && (
                                     <div className="bg-muted/30 px-4 pb-4 border-t border-border shadow-inner">
-                                            <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 mt-2">Transactions</div>
+                                            <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 mt-2">{t('budget.transactions')}</div>
                                             <div className="space-y-2 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
-                                                {item.transactions.map(t => (
-                                                    <div key={t.id} className="flex justify-between text-xs border-b border-border/50 pb-1 last:border-0">
-                                                        <div className="flex flex-col"><span className="text-foreground font-medium truncate max-w-[160px]">{t.merchant || t.description}</span><span className="text-muted-foreground">{t.dateString}</span></div>
-                                                        <span className="text-foreground font-bold">${Math.abs(t.amount).toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+                                                {item.transactions.map(tx => (
+                                                    <div key={tx.id} className="flex justify-between text-xs border-b border-border/50 pb-1 last:border-0">
+                                                        <div className="flex flex-col"><span className="text-foreground font-medium truncate max-w-[160px]">{tx.merchant || tx.description}</span><span className="text-muted-foreground">{tx.dateString}</span></div>
+                                                        <span className="text-foreground font-bold">${Math.abs(tx.amount).toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -513,7 +520,7 @@ const BudgetColumn = ({ title, bucket, data, iconName, iconColor, headerColor, i
                             </div>
                         );
                     })
-                ) : <div className="p-8 text-center text-muted-foreground text-sm italic">No active categories.</div>}
+                ) : <div className="p-8 text-center text-muted-foreground text-sm italic">{t('budget.noActiveCategories')}</div>}
             </div>
         </div>
     );

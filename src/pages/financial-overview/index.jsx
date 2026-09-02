@@ -8,6 +8,7 @@ import {
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import useTransactions from '../../hooks/useTransactions';
 import Icon from '../../components/AppIcon';
+import { useI18n } from '../../i18n';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import RecentActivityScanner from '../../components/RecentActivityScanner';
@@ -38,6 +39,7 @@ const ITEMS_PER_PAGE = 50;
 // ==========================================
 
 const AccountFilterDropdown = ({ accounts, selected, onChange }) => {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef(null);
 
@@ -57,7 +59,7 @@ const AccountFilterDropdown = ({ accounts, selected, onChange }) => {
   return (
     <div className="relative" ref={wrapperRef}>
       <Button variant="outline" onClick={() => setIsOpen(!isOpen)} className="min-w-[200px] justify-between bg-card text-foreground border-input" iconName="Wallet" iconPosition="left">
-        <span className="truncate">{selected.length === 0 ? "All Accounts" : `${selected.length} Selected`}</span>
+        <span className="truncate">{selected.length === 0 ? t('activity.allAccounts') : t('activity.selectedCount', { count: selected.length })}</span>
         <Icon name={isOpen ? "ChevronUp" : "ChevronDown"} size={14} className="ml-2 opacity-50" />
       </Button>
       {isOpen && (
@@ -65,7 +67,7 @@ const AccountFilterDropdown = ({ accounts, selected, onChange }) => {
           <div className="p-2 border-b border-border bg-muted/30">
             <div onClick={() => onChange([])} className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-muted transition-colors">
               <Input type="checkbox" checked={selected.length === 0} readOnly className="pointer-events-none" />
-              <span className="text-sm font-medium">All Accounts</span>
+              <span className="text-sm font-medium">{t('activity.allAccounts')}</span>
             </div>
           </div>
           <div className="max-h-64 overflow-y-auto p-2 space-y-1">
@@ -172,6 +174,7 @@ const SpendingBreakdownChart = ({ data }) => {
 // ==========================================
 
 const FinancialOverview = () => {
+  const { t, tCategory } = useI18n();
   const [timeRange, setTimeRange] = useState('all');
   const [selectedAccounts, setSelectedAccounts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -287,18 +290,18 @@ const FinancialOverview = () => {
 const cancelEditing = () => { setEditingId(null); setEditForm({}); };
 const handleEditChange = (field, value) => { setEditForm(prev => ({ ...prev, [field]: value })); };
 
-const handleDeleteTransaction = async (t) => {
-  const label = t.merchant || t.description || 'this transaction';
+const handleDeleteTransaction = async (tx) => {
+  const label = tx.merchant || tx.description || t('activity.thisTransaction');
   const confirmed = window.confirm(
-    `Delete "${label}" (${t.dateString}, $${Math.abs(t.amount).toFixed(2)})? This can't be undone.`
+    t('activity.deleteConfirm', { label, date: tx.dateString, amount: `$${Math.abs(tx.amount).toFixed(2)}` })
   );
   if (!confirmed) return;
 
   try {
-    await deleteTransaction(t.id);
+    await deleteTransaction(tx.id);
   } catch (err) {
     console.error('Delete transaction error:', err);
-    alert('Failed to delete transaction: ' + (err?.message || 'Unknown error'));
+    alert(t('activity.deleteFailed', { msg: err?.message || t('activity.unknownError') }));
   }
 };
 
@@ -344,7 +347,7 @@ const handleDeleteTransaction = async (t) => {
 
     const count = selectedIds.size;
     const confirmed = window.confirm(
-      `Delete ${count} selected transaction${count === 1 ? '' : 's'}? This can't be undone.`
+      t('activity.bulkDeleteConfirm', { count })
     );
     if (!confirmed) return;
 
@@ -355,11 +358,11 @@ const handleDeleteTransaction = async (t) => {
       const failed = results.filter(r => r.status === 'rejected').length;
 
       if (failed > 0) {
-        alert(`Deleted ${count - failed} of ${count} transactions. ${failed} failed -- check console for details.`);
+        alert(t('activity.bulkDeletePartial', { done: count - failed, total: count, failed }));
       }
     } catch (err) {
       console.error('Bulk delete error:', err);
-      alert('Failed to delete selected transactions: ' + (err?.message || 'Unknown error'));
+      alert(t('activity.deleteSelectedFailed', { msg: err?.message || t('activity.unknownError') }));
     } finally {
       setIsBulkUpdating(false);
       setSelectedIds(new Set());
@@ -368,7 +371,7 @@ const handleDeleteTransaction = async (t) => {
 
   // --- THE MEGA-DICTIONARY MAGIC SWEEP ---
   const handleMagicSweep = async () => {
-    if(!window.confirm("This will scan the database and automatically bucket your Unsorted transactions. Ready?")) return;
+    if(!window.confirm(t('activity.magicSweepConfirm'))) return;
     setIsBulkUpdating(true);
 
     // The massive dictionary containing all your custom categories
@@ -432,11 +435,11 @@ const handleDeleteTransaction = async (t) => {
            .eq('category', cat)
            .in('budget_bucket', ['Unsorted', 'Uncategorized', '', null]);
       }
-     alert(`Magic Sweep Complete! Automatically assigned buckets for known categories.`);
+     alert(t('activity.magicSweepDone'));
       window.location.reload(); // Hard refresh to pull pristine data
     } catch (err) {
       console.error(err);
-      alert("Error running Magic Sweep. Check console.");
+      alert(t('activity.magicSweepError'));
     }
     setIsBulkUpdating(false);
   };
@@ -448,7 +451,7 @@ const handleDeleteTransaction = async (t) => {
   // data). Also feeds the bulk-upload "learn from history" feature, since it
   // only learns from what's really stored, not what's just displayed.
   const handleRuleBasedCategorize = async () => {
-    if (!window.confirm("This will scan ALL your Uncategorized transactions and apply your saved rules to permanently assign real categories and buckets. This may take a moment for ~2,000+ transactions. Ready?")) return;
+    if (!window.confirm(t('activity.ruleCategorizeConfirm'))) return;
     setIsBulkUpdating(true);
 
     try {
@@ -460,7 +463,7 @@ const handleDeleteTransaction = async (t) => {
       if (error) throw error;
 
       if (!uncategorized || uncategorized.length === 0) {
-        alert('No uncategorized transactions found -- nothing to do.');
+        alert(t('activity.noUncategorized'));
         setIsBulkUpdating(false);
         return;
       }
@@ -500,11 +503,11 @@ const handleDeleteTransaction = async (t) => {
       }
 
       const unmatchedCount = uncategorized.length - matchedCount;
-      alert(`Done! Categorized ${matchedCount} of ${uncategorized.length} previously uncategorized transactions using your rules.\n\n${unmatchedCount} still have no matching rule and remain Uncategorized -- these are genuinely new merchants worth reviewing manually or adding a rule for.`);
+      alert(t('activity.ruleDone', { matched: matchedCount, total: uncategorized.length, unmatched: unmatchedCount }));
       window.location.reload();
     } catch (err) {
       console.error(err);
-      alert('Error running rule-based categorization: ' + (err?.message || 'Unknown error'));
+      alert(t('activity.ruleError', { msg: err?.message || t('activity.unknownError') }));
       setIsBulkUpdating(false);
     }
   };
@@ -529,21 +532,21 @@ const handleDeleteTransaction = async (t) => {
         {/* HEADER */}
         <div className="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Activity</h1>
+            <h1 className="text-3xl font-bold text-foreground">{t('activity.title')}</h1>
             <div className="flex items-center gap-2 mt-1">
               <p className="text-sm text-muted-foreground font-medium">
-                {timeRange === 'all' ? 'All Time History' : `${timeRange} Fiscal Year`}
+                {timeRange === 'all' ? t('activity.allTimeHistory') : t('activity.fiscalYear', { year: timeRange })}
               </p>
-              {loading && <span className="text-xs text-primary animate-pulse ml-2 font-bold">Syncing...</span>}
+              {loading && <span className="text-xs text-primary animate-pulse ml-2 font-bold">{t('activity.syncing')}</span>}
             </div>
           </div>
           <div className="flex gap-2 items-center flex-wrap">
              <Button variant="default" className="bg-primary hover:bg-primary/90 text-white h-10" iconName="ScanLine" iconPosition="left" onClick={() => setShowActivityScanner((s) => !s)}>
-               Scan recent activity
+               {t('activity.scanRecentActivity')}
              </Button>
              <AccountFilterDropdown accounts={uniqueAccounts} selected={selectedAccounts} onChange={setSelectedAccounts}/>
              <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="bg-card border border-input rounded-lg p-2 text-sm font-medium shadow-sm h-10">
-               <option value="all">All Time</option>
+               <option value="all">{t('activity.allTime')}</option>
                {uniqueYears.map(year => <option key={year} value={year}>{year}</option>)}
              </select>
           </div>
@@ -565,10 +568,10 @@ const handleDeleteTransaction = async (t) => {
 
         {/* KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <KPICard title="Net Position" value={`$${financialStats?.netWorth.toLocaleString() || '0.00'}`} change="Real Income - Expense" changeType={financialStats?.netWorth >= 0 ? 'positive' : 'negative'} iconName="TrendingUp" iconColor="#10B981" />
-          <KPICard title="Real Income" value={`$${financialStats?.inflow.toLocaleString() || '0.00'}`} change="Salary & Interest Only" changeType="positive" iconName="DollarSign" iconColor="#3B82F6" />
-          <KPICard title="Real Spending" value={`$${financialStats?.outflow.toLocaleString() || '0.00'}`} change="Needs & Wants Only" changeType="neutral" iconName="CreditCard" iconColor="#F59E0B" />
-          <KPICard title="Activity" value={financialStats?.count || 0} change="Total Rows" changeType="neutral" iconName="List" iconColor="#6366F1" />
+          <KPICard title={t('activity.netPosition')} value={`$${financialStats?.netWorth.toLocaleString() || '0.00'}`} change={t('activity.realIncomeExpense')} changeType={financialStats?.netWorth >= 0 ? 'positive' : 'negative'} iconName="TrendingUp" iconColor="#10B981" />
+          <KPICard title={t('activity.realIncome')} value={`$${financialStats?.inflow.toLocaleString() || '0.00'}`} change={t('activity.salaryInterestOnly')} changeType="positive" iconName="DollarSign" iconColor="#3B82F6" />
+          <KPICard title={t('activity.realSpending')} value={`$${financialStats?.outflow.toLocaleString() || '0.00'}`} change={t('activity.needsWantsOnly')} changeType="neutral" iconName="CreditCard" iconColor="#F59E0B" />
+          <KPICard title={t('activity.title')} value={financialStats?.count || 0} change={t('activity.totalRows')} changeType="neutral" iconName="List" iconColor="#6366F1" />
         </div>
 
         {/* CHARTS */}
@@ -584,33 +587,33 @@ const handleDeleteTransaction = async (t) => {
           {selectedIds.size > 0 && (
             <div className="absolute top-0 left-0 right-0 bg-primary text-primary-foreground p-3 z-20 flex items-center justify-between animate-in slide-in-from-top-2">
                <div className="flex items-center gap-4">
-                  <span className="font-bold text-sm px-3 py-1 bg-white/20 rounded-full">{selectedIds.size} Selected</span>
+                  <span className="font-bold text-sm px-3 py-1 bg-white/20 rounded-full">{t('activity.selectedCount', { count: selectedIds.size })}</span>
                   <div className="flex items-center gap-2">
-                     <span className="text-xs opacity-80">Category:</span>
+                     <span className="text-xs opacity-80">{t('activity.categoryLabel')}</span>
                      <select value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} className="h-8 rounded bg-card text-foreground text-xs border-0 px-2 focus:ring-2 focus:ring-white">
-                       <option value="">-- No Change --</option>
-                       <option value="Lunch Reimbursement">Lunch Reimbursement</option>
-                       <option value="Transfer In">Transfer In</option>
-                       <option value="Transfer">Transfer</option>
-                       {uniqueCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                       <option value="">{t('activity.noChange')}</option>
+                       <option value="Lunch Reimbursement">{tCategory('Lunch Reimbursement')}</option>
+                       <option value="Transfer In">{tCategory('Transfer In')}</option>
+                       <option value="Transfer">{tCategory('Transfer')}</option>
+                       {uniqueCategories.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}
                      </select>
                   </div>
                   <div className="flex items-center gap-2">
-                     <span className="text-xs opacity-80">Bucket:</span>
+                     <span className="text-xs opacity-80">{t('activity.bucketLabel')}</span>
                      <select value={bulkBucket} onChange={(e) => setBulkBucket(e.target.value)} className="h-8 rounded bg-card text-foreground text-xs border-0 px-2 focus:ring-2 focus:ring-white">
-                       <option value="">-- No Change --</option>
-                       <option value="TRANSFERS">TRANSFERS</option>
-                       <option value="INCOME">INCOME</option>
-                       <option value="NEEDS">NEEDS</option>
-                       <option value="WANTS">WANTS</option>
-                       <option value="SAVINGS">SAVINGS</option>
+                       <option value="">{t('activity.noChange')}</option>
+                       <option value="TRANSFERS">{t('buckets.transfers')}</option>
+                       <option value="INCOME">{t('buckets.income')}</option>
+                       <option value="NEEDS">{t('buckets.needs')}</option>
+                       <option value="WANTS">{t('buckets.wants')}</option>
+                       <option value="SAVINGS">{t('buckets.savings')}</option>
                      </select>
                   </div>
                </div>
               <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="bg-transparent border-white/50 text-white hover:bg-white/20" onClick={() => setSelectedIds(new Set())}>Cancel</Button>
-                  <Button variant="default" size="sm" className="bg-card text-primary hover:bg-white/90 font-bold shadow-lg" onClick={handleBulkUpdate} disabled={isBulkUpdating || (!bulkCategory && !bulkBucket)}>{isBulkUpdating ? 'Updating...' : 'Update'}</Button>
-                  <Button variant="destructive" size="sm" className="font-bold shadow-lg" iconName="Trash2" onClick={handleBulkDelete} disabled={isBulkUpdating}>{isBulkUpdating ? 'Deleting...' : `Delete ${selectedIds.size}`}</Button>
+                  <Button variant="outline" size="sm" className="bg-transparent border-white/50 text-white hover:bg-white/20" onClick={() => setSelectedIds(new Set())}>{t('common.cancel')}</Button>
+                  <Button variant="default" size="sm" className="bg-card text-primary hover:bg-white/90 font-bold shadow-lg" onClick={handleBulkUpdate} disabled={isBulkUpdating || (!bulkCategory && !bulkBucket)}>{isBulkUpdating ? t('activity.updating') : t('activity.update')}</Button>
+                  <Button variant="destructive" size="sm" className="font-bold shadow-lg" iconName="Trash2" onClick={handleBulkDelete} disabled={isBulkUpdating}>{isBulkUpdating ? t('activity.deleting') : t('activity.deleteCount', { count: selectedIds.size })}</Button>
                </div>
             </div>
           )}
@@ -620,33 +623,33 @@ const handleDeleteTransaction = async (t) => {
              <div className="flex flex-col md:flex-row gap-2 w-full xl:w-auto flex-1">
                 <div className="relative flex-grow">
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"><Icon name="Search" size={16} /></div>
-                    <input type="text" placeholder="Search merchant..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                    <input type="text" placeholder={t('activity.searchMerchant')} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                 </div>
-                <div className="w-24"><input type="number" placeholder="Min $" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
-                <div className="w-24"><input type="number" placeholder="Max $" value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
+                <div className="w-24"><input type="number" placeholder={t('activity.minAmount')} value={minAmount} onChange={(e) => setMinAmount(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
+                <div className="w-24"><input type="number" placeholder={t('activity.maxAmount')} value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
              </div>
              <div className="flex flex-col md:flex-row gap-4 items-center w-full xl:w-auto mt-4 xl:mt-0">
                <div className="flex items-center gap-3 px-3 py-1 bg-card border border-border rounded-lg shadow-sm w-full md:w-auto justify-between md:justify-start">
                   <div className="text-right">
-                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Filtered Sum</p>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">{t('activity.filteredSum')}</p>
                     <p className={`text-sm font-mono font-bold ${filteredStats.amount > 0 ? 'text-green-600' : 'text-foreground'}`}>{filteredStats.amount > 0 ? '+' : ''}${filteredStats.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                   </div>
                   <div className="h-8 w-px bg-border mx-1"></div>
-                  <div><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Count</p><p className="text-sm font-mono font-bold text-foreground">{filteredStats.count}</p></div>
+                  <div><p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">{t('activity.count')}</p><p className="text-sm font-mono font-bold text-foreground">{filteredStats.count}</p></div>
                </div>
                <div className="flex gap-2 w-full md:w-auto flex-wrap md:flex-nowrap items-center">
-                 <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer"><option value="All">All Types</option><option value="Income">Income (+)</option><option value="Expense">Expense (-)</option></select>
-                 <select value={bucketFilter} onChange={(e) => setBucketFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer"><option value="All">All Buckets</option>{uniqueBuckets.map(b => <option key={b} value={b}>{b}</option>)}</select>
-                 <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer max-w-[150px]"><option value="All">All Categories</option>{uniqueCategories.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                 <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer"><option value="All">{t('activity.allTypes')}</option><option value="Income">{t('activity.incomePlus')}</option><option value="Expense">{t('activity.expenseMinus')}</option></select>
+                 <select value={bucketFilter} onChange={(e) => setBucketFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer"><option value="All">{t('activity.allBuckets')}</option>{uniqueBuckets.map(b => <option key={b} value={b}>{t(`buckets.${String(b).toLowerCase()}`)}</option>)}</select>
+                 <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm cursor-pointer max-w-[150px]"><option value="All">{t('activity.allCategories')}</option>{uniqueCategories.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}</select>
 
                  {/* THE NEW BUTTONS */}
-                 <Button variant="ghost" size="icon" iconName="X" onClick={clearFilters} title="Clear All Filters" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"/>
-                 <Button variant="outline" size="icon" iconName="Download" onClick={handleExportCSV} title="Export to CSV" />
+                 <Button variant="ghost" size="icon" iconName="X" onClick={clearFilters} title={t('activity.clearAllFilters')} className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"/>
+                 <Button variant="outline" size="icon" iconName="Download" onClick={handleExportCSV} title={t('activity.exportCsv')} />
                  <Button variant="default" className="bg-indigo-600 hover:bg-indigo-700 text-white ml-2 text-xs h-10 px-3 shadow-md" iconName="Wand" onClick={handleMagicSweep} disabled={isBulkUpdating}>
-                    {isBulkUpdating ? 'Fixing...' : 'Magic Sweep'}
+                    {isBulkUpdating ? t('activity.fixing') : t('activity.magicSweep')}
                  </Button>
                  <Button variant="default" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-10 px-3 shadow-md" iconName="Sparkles" onClick={handleRuleBasedCategorize} disabled={isBulkUpdating}>
-                    {isBulkUpdating ? 'Working...' : 'Categorize from Rules'}
+                    {isBulkUpdating ? t('activity.working') : t('activity.categorizeFromRules')}
                  </Button>
                </div>
              </div>
@@ -658,35 +661,35 @@ const handleDeleteTransaction = async (t) => {
               <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground font-semibold tracking-wider">
                 <tr>
                   <th className="p-4 w-10"><button onClick={toggleSelectAll} className="hover:text-foreground">{selectedIds.size > 0 && selectedIds.size === currentData.length ? <Icon name="CheckSquare" size={18} className="text-primary"/> : <Icon name="Square" size={18} className="text-muted-foreground"/>}</button></th>
-                  <th className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => handleSort('date')}>Date</th>
-                  <th className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => handleSort('merchant')}>Merchant</th>
-                  <th className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => handleSort('category')}>Category</th>
-                  <th className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => handleSort('budgetBucket')}>Bucket</th>
-                  <th className="p-4 text-right cursor-pointer hover:bg-muted/50" onClick={() => handleSort('amount')}>Amount</th>
-                  <th className="p-4 text-center">Action</th>
+                  <th className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => handleSort('date')}>{t('activity.thDate')}</th>
+                  <th className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => handleSort('merchant')}>{t('activity.thMerchant')}</th>
+                  <th className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => handleSort('category')}>{t('activity.thCategory')}</th>
+                  <th className="p-4 cursor-pointer hover:bg-muted/50" onClick={() => handleSort('budgetBucket')}>{t('activity.thBucket')}</th>
+                  <th className="p-4 text-right cursor-pointer hover:bg-muted/50" onClick={() => handleSort('amount')}>{t('activity.thAmount')}</th>
+                  <th className="p-4 text-center">{t('activity.thAction')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border text-sm">
                 {currentData.length === 0 ? (
-                  <tr><td colSpan="7" className="p-12 text-center text-muted-foreground italic">No transactions found matching your filters.</td></tr>
-                ) : currentData.map(t => {
-                  const isEditing = editingId === t.id;
+                  <tr><td colSpan="7" className="p-12 text-center text-muted-foreground italic">{t('activity.noMatching')}</td></tr>
+                ) : currentData.map(tx => {
+                  const isEditing = editingId === tx.id;
                   return (
-                  <tr key={t.id} className={`hover:bg-muted/30 transition-colors ${selectedIds.has(t.id) ? 'bg-primary/5' : ''}`}>
-                    <td className="p-4"><Input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleSelectOne(t.id)} className="cursor-pointer" disabled={isEditing} /></td>
-                    <td className="p-4 text-muted-foreground whitespace-nowrap">{t.dateString}</td>
-                    <td className="p-4">{isEditing ? (<div className="flex flex-col gap-1"><input type="text" value={editForm.merchant} onChange={(e) => handleEditChange('merchant', e.target.value)} className="border border-primary rounded p-1 text-sm w-full bg-card" autoFocus /><input type="text" value={editForm.description || ''} onChange={(e) => handleEditChange('description', e.target.value)} className="border border-border rounded p-1 text-xs w-full bg-muted/20" placeholder="Original Description" /></div>) : (<><div className="font-bold text-foreground">{t.merchant}</div><div className="text-xs text-muted-foreground truncate max-w-[200px]">{t.description}</div></>)}</td>
-                    <td className="p-4">{isEditing ? (<select value={editForm.category} onChange={(e) => handleEditChange('category', e.target.value)} className="border border-primary rounded p-1 text-xs w-full bg-card">{uniqueCategories.map(c => <option key={c} value={c}>{c}</option>)}</select>) : (<span className="bg-muted text-foreground px-2 py-1 rounded-md text-xs font-medium border border-border">{t.category}</span>)}</td>
-                    <td className="p-4">{isEditing ? (<select value={editForm.budgetBucket} onChange={(e) => handleEditChange('budgetBucket', e.target.value)} className="border border-primary rounded p-1 text-xs w-full bg-card">{['NEEDS', 'WANTS', 'SAVINGS', 'INCOME', 'TRANSFERS', 'DEBT_FUNDING'].map(b => <option key={b} value={b}>{b}</option>)}</select>) : (<span className={`px-2 py-1 rounded text-xs font-bold border ${t.budgetBucket === 'NEEDS' ? 'bg-green-100 text-green-800 border-green-200' : t.budgetBucket === 'WANTS' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-muted text-muted-foreground border-border'}`}>{t.budgetBucket}</span>)}</td>
-                    <td className={`p-4 text-right font-mono font-medium ${t.amount > 0 ? 'text-green-600' : 'text-foreground'}`}>{t.amount > 0 ? '+' : ''}${Math.abs(t.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                    <td className="p-4 text-center">{isEditing ? (<div className="flex justify-center gap-1"><Button variant="success" size="icon" iconName="Check" className="h-8 w-8" onClick={saveEditing} /><Button variant="outline" size="icon" iconName="X" className="h-8 w-8 text-muted-foreground" onClick={cancelEditing} title="Cancel edit" /></div>) : (<div className="flex justify-center gap-1"><Button variant="ghost" size="icon" iconName="Edit2" onClick={() => startEditing(t)} className="hover:bg-primary/10 text-muted-foreground hover:text-primary" title="Edit" /><Button variant="ghost" size="icon" iconName="Trash2" onClick={() => handleDeleteTransaction(t)} className="hover:bg-destructive/10 text-muted-foreground hover:text-destructive" title="Delete" /></div>)}</td>
+                  <tr key={tx.id} className={`hover:bg-muted/30 transition-colors ${selectedIds.has(tx.id) ? 'bg-primary/5' : ''}`}>
+                    <td className="p-4"><Input type="checkbox" checked={selectedIds.has(tx.id)} onChange={() => toggleSelectOne(tx.id)} className="cursor-pointer" disabled={isEditing} /></td>
+                    <td className="p-4 text-muted-foreground whitespace-nowrap">{tx.dateString}</td>
+                    <td className="p-4">{isEditing ? (<div className="flex flex-col gap-1"><input type="text" value={editForm.merchant} onChange={(e) => handleEditChange('merchant', e.target.value)} className="border border-primary rounded p-1 text-sm w-full bg-card" autoFocus /><input type="text" value={editForm.description || ''} onChange={(e) => handleEditChange('description', e.target.value)} className="border border-border rounded p-1 text-xs w-full bg-muted/20" placeholder={t('activity.originalDescription')} /></div>) : (<><div className="font-bold text-foreground">{tx.merchant}</div><div className="text-xs text-muted-foreground truncate max-w-[200px]">{tx.description}</div></>)}</td>
+                    <td className="p-4">{isEditing ? (<select value={editForm.category} onChange={(e) => handleEditChange('category', e.target.value)} className="border border-primary rounded p-1 text-xs w-full bg-card">{uniqueCategories.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}</select>) : (<span className="bg-muted text-foreground px-2 py-1 rounded-md text-xs font-medium border border-border">{tCategory(tx.category)}</span>)}</td>
+                    <td className="p-4">{isEditing ? (<select value={editForm.budgetBucket} onChange={(e) => handleEditChange('budgetBucket', e.target.value)} className="border border-primary rounded p-1 text-xs w-full bg-card">{['NEEDS', 'WANTS', 'SAVINGS', 'INCOME', 'TRANSFERS', 'DEBT_FUNDING'].map(b => <option key={b} value={b}>{t(`buckets.${b.toLowerCase()}`)}</option>)}</select>) : (<span className={`px-2 py-1 rounded text-xs font-bold border ${tx.budgetBucket === 'NEEDS' ? 'bg-green-100 text-green-800 border-green-200' : tx.budgetBucket === 'WANTS' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-muted text-muted-foreground border-border'}`}>{tx.budgetBucket ? t(`buckets.${String(tx.budgetBucket).toLowerCase()}`) : ''}</span>)}</td>
+                    <td className={`p-4 text-right font-mono font-medium ${tx.amount > 0 ? 'text-green-600' : 'text-foreground'}`}>{tx.amount > 0 ? '+' : ''}${Math.abs(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-4 text-center">{isEditing ? (<div className="flex justify-center gap-1"><Button variant="success" size="icon" iconName="Check" className="h-8 w-8" onClick={saveEditing} /><Button variant="outline" size="icon" iconName="X" className="h-8 w-8 text-muted-foreground" onClick={cancelEditing} title={t('activity.cancelEdit')} /></div>) : (<div className="flex justify-center gap-1"><Button variant="ghost" size="icon" iconName="Edit2" onClick={() => startEditing(tx)} className="hover:bg-primary/10 text-muted-foreground hover:text-primary" title={t('activity.editTitle')} /><Button variant="ghost" size="icon" iconName="Trash2" onClick={() => handleDeleteTransaction(tx)} className="hover:bg-destructive/10 text-muted-foreground hover:text-destructive" title={t('activity.deleteTitle')} /></div>)}</td>
                   </tr>
                 )})}
               </tbody>
             </table>
           </div>
           <div className="p-3 border-t border-border bg-muted/20 flex justify-between items-center">
-             <span className="text-xs text-muted-foreground font-medium">Page {currentPage} of {totalPages}</span>
+             <span className="text-xs text-muted-foreground font-medium">{t('activity.pageOf', { page: currentPage, total: totalPages })}</span>
              <div className="flex gap-1">
                <Button variant="outline" size="icon" iconName="ChevronLeft" onClick={() => setCurrentPage(p => Math.max(1, p-1))} disabled={currentPage===1} />
                <Button variant="outline" size="icon" iconName="ChevronRight" onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))} disabled={currentPage===totalPages} />

@@ -7,6 +7,7 @@ import { classifyTransaction } from '../lib/engine/ruleMatcher';
 import useUserMerchantRules from '../hooks/useUserMerchantRules';
 import AccountSelect from './AccountSelect';
 import ImageScanTray from './ImageScanTray';
+import { useI18n } from '../i18n';
 import { analyzeDetectedImportAccounts, prepareImportAccountAssignment, normalizeAccountName } from '../lib/accountOptions';
 import { authHeader } from '../lib/apiClient';
 
@@ -258,6 +259,7 @@ function parsePipeSeparatedText(rawText) {
 // this action can share a single "+" speed-dial with Add Transaction.
 export default function BulkUpload({ onTransactionsAdded, open = false, onClose }) {
   const { user } = useAuth();
+  const { t } = useI18n();
   const { userRules } = useUserMerchantRules(); // active user rules (empty today)
   const closeModal = () => { if (onClose) onClose(); };
   const [activeTab, setActiveTab] = useState('text');
@@ -575,7 +577,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
       if (normalized.length === 0) throw new Error('No valid transactions were parsed from the text.');
       setParsedTransactions(await flagPossibleDuplicates(await applyLearnedCategorization(applyStaticRules(normalized))));
     } catch (error) {
-      alert(`Parsing failed: ${error.message}`);
+      alert(t('bulkUpload.parseFailedText', { msg: error.message }));
     } finally {
       setLoading(false);
     }
@@ -714,7 +716,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
 
       setParsedTransactions(await flagPossibleDuplicates(await applyLearnedCategorization(applyStaticRules(transactions))));
     } catch (error) {
-      alert(`Spreadsheet parsing failed: ${error.message}`);
+      alert(t('bulkUpload.parseFailedSheet', { msg: error.message }));
     } finally {
       setLoading(false);
     }
@@ -734,7 +736,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
       const normalized = (Array.isArray(data) ? data : []).map(normalizeParsedTransaction).filter((t) => t.description && !Number.isNaN(Number(t.amount)));
       if (normalized.length === 0) throw new Error('No valid transactions found.');
       setParsedTransactions(await flagPossibleDuplicates(await applyLearnedCategorization(applyStaticRules(normalized))));
-    } catch (error) { alert(`PDF parsing failed: ${error.message}`); }
+    } catch (error) { alert(t('bulkUpload.parseFailedPdf', { msg: error.message })); }
     finally { setLoading(false); }
   };
 
@@ -753,7 +755,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
       if (normalized.length === 0) throw new Error('No transactions found in this statement.');
       setParsedTransactions(await flagPossibleDuplicates(await applyLearnedCategorization(applyStaticRules(normalized))));
     } catch (error) {
-      alert(`UNFCU statement parsing failed: ${error.message}`);
+      alert(t('bulkUpload.parseFailedUnfcu', { msg: error.message }));
     } finally {
       setLoading(false);
     }
@@ -774,7 +776,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
 
       setParsedTransactions(await flagPossibleDuplicates(await applyLearnedCategorization(applyStaticRules(extracted))));
     } catch (error) {
-      alert(`Cooperativa statement parsing failed: ${error.message}`);
+      alert(t('bulkUpload.parseFailedCoop', { msg: error.message }));
     } finally {
       setLoading(false);
     }
@@ -805,12 +807,12 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
       if (normalized.length === 0) throw new Error('No transactions could be read from these images.');
       setParsedTransactions(await flagPossibleDuplicates(await applyLearnedCategorization(applyStaticRules(normalized))));
       setImages([]);
-    } catch (error) { alert(`Image parsing failed: ${error.message}`); }
+    } catch (error) { alert(t('bulkUpload.parseFailedImage', { msg: error.message })); }
     finally { setLoading(false); }
   };
   // 5. Guardado en Base de Datos (Corregido)
   const handleSaveToDatabase = async () => {
-    if (!user?.id) return alert('You must be signed in before uploading transactions.');
+    if (!user?.id) return alert(t('bulkUpload.mustSignIn'));
     if (parsedTransactions.length === 0) return;
     setLoading(true);
 
@@ -819,7 +821,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
       const skipped = parsedTransactions.filter((t) => t.willFailSave);
 
       if (toSave.length === 0) {
-        alert('Every row in this batch is flagged as a definite duplicate -- nothing was saved. Review and delete the ones you don\'t need, or edit a description/amount slightly if you know it\'s genuinely a separate transaction, then try again.');
+        alert(t('bulkUpload.allDuplicates'));
         setLoading(false);
         return;
       }
@@ -849,18 +851,18 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
 
       if (skipped.length > 0) {
         const savedAccounts = [...new Set(formattedData.map((row) => row.account_name))].join(', ');
-        alert(`Saved ${formattedData.length} transactions to ${savedAccounts}.\n\nSkipped ${skipped.length} that would have failed as exact duplicates -- they're still showing in the preview below for you to review, delete, or adjust manually.`);
+        alert(t('bulkUpload.savedWithSkipped', { count: formattedData.length, accounts: savedAccounts, skipped: skipped.length }));
         setParsedTransactions(skipped);
       } else {
         const savedAccounts = [...new Set(formattedData.map((row) => row.account_name))].join(', ');
-        alert(`Successfully saved ${formattedData.length} transactions to ${savedAccounts}!`);
+        alert(t('bulkUpload.savedSuccess', { count: formattedData.length, accounts: savedAccounts }));
         setParsedTransactions([]);
         setRawText('');
         closeModal();
       }
       if (onTransactionsAdded) onTransactionsAdded();
     } catch (error) {
-      alert(`Database Error: ${error.message}`);
+      alert(t('bulkUpload.dbError', { msg: error.message }));
     } finally {
       setLoading(false);
     }
@@ -878,7 +880,7 @@ return (
       <div style={{ backgroundColor: 'var(--color-card)', color: 'var(--color-card-foreground)', padding: '20px', borderRadius: '15px', width: '100%', maxWidth: '700px', maxHeight: '90vh', overflowY: 'auto' }}>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-          <h2>Bulk Statement Upload</h2>
+          <h2>{t('bulkUpload.title')}</h2>
           <button onClick={closeModal} style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer' }}>X</button>
         </div>
 
@@ -886,83 +888,83 @@ return (
             create/name the account this statement belongs to (inline). */}
         {parsedTransactions.length === 0 && (
           <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Import into account</label>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>{t('accounts.importIntoAccount')}</label>
             <AccountSelect value={selectedAccount} onChange={setSelectedAccount} />
             <p style={{ fontSize: '12px', color: 'var(--color-muted-foreground)', marginTop: '6px' }}>
-              All rows from this statement import into the selected account. Manage accounts in More → Accounts.
+              {t('bulkUpload.importIntoAccountHint')}
             </p>
           </div>
         )}
 
         <div style={{ display: 'flex', gap: '5px', marginBottom: '20px', flexWrap: 'wrap' }}>
-          <button onClick={() => setActiveTab('text')} style={{ flex: 1, padding: '10px', background: activeTab === 'text' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'text' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>Text</button>
-          <button onClick={() => setActiveTab('sheet')} style={{ flex: 1, padding: '10px', background: activeTab === 'sheet' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'sheet' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>XLS/CSV</button>
-          <button onClick={() => setActiveTab('pdf')} style={{ flex: 1, padding: '10px', background: activeTab === 'pdf' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'pdf' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>PDF</button>
-          <button onClick={() => setActiveTab('image')} style={{ flex: 1, padding: '10px', background: activeTab === 'image' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'image' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>Photo</button>
-          <button onClick={() => setActiveTab('coophtml')} style={{ flex: 1, padding: '10px', background: activeTab === 'coophtml' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'coophtml' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>Coop HTML</button>
-          <button onClick={() => setActiveTab('unfcu')} style={{ flex: 1, padding: '10px', background: activeTab === 'unfcu' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'unfcu' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>UNFCU PDF</button>
+          <button onClick={() => setActiveTab('text')} style={{ flex: 1, padding: '10px', background: activeTab === 'text' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'text' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>{t('bulkUpload.tabText')}</button>
+          <button onClick={() => setActiveTab('sheet')} style={{ flex: 1, padding: '10px', background: activeTab === 'sheet' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'sheet' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>{t('bulkUpload.tabSheet')}</button>
+          <button onClick={() => setActiveTab('pdf')} style={{ flex: 1, padding: '10px', background: activeTab === 'pdf' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'pdf' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>{t('bulkUpload.tabPdf')}</button>
+          <button onClick={() => setActiveTab('image')} style={{ flex: 1, padding: '10px', background: activeTab === 'image' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'image' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>{t('bulkUpload.tabImage')}</button>
+          <button onClick={() => setActiveTab('coophtml')} style={{ flex: 1, padding: '10px', background: activeTab === 'coophtml' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'coophtml' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>{t('bulkUpload.tabCoop')}</button>
+          <button onClick={() => setActiveTab('unfcu')} style={{ flex: 1, padding: '10px', background: activeTab === 'unfcu' ? '#007AFF' : 'var(--color-muted)', color: activeTab === 'unfcu' ? 'white' : 'var(--color-foreground)', border: 'none', borderRadius: '5px' }}>{t('bulkUpload.tabUnfcu')}</button>
         </div>
 
         {parsedTransactions.length === 0 && activeTab === 'text' && (
           <div>
-            <textarea placeholder="Paste your raw bank statement text here..." value={rawText} onChange={(e) => setRawText(e.target.value)} style={{ width: '100%', height: '180px', padding: '10px', marginBottom: '10px', borderRadius: '5px', border: '1px solid var(--color-border)' }} />
-            <button onClick={handleParseText} disabled={loading || !rawText.trim()} style={{ width: '100%', padding: '12px', background: '#007AFF', color: 'white', border: 'none', borderRadius: '5px' }}>{loading ? 'Parsing...' : 'Parse Text'}</button>
+            <textarea placeholder={t('bulkUpload.pasteTextPlaceholder')} value={rawText} onChange={(e) => setRawText(e.target.value)} style={{ width: '100%', height: '180px', padding: '10px', marginBottom: '10px', borderRadius: '5px', border: '1px solid var(--color-border)' }} />
+            <button onClick={handleParseText} disabled={loading || !rawText.trim()} style={{ width: '100%', padding: '12px', background: '#007AFF', color: 'white', border: 'none', borderRadius: '5px' }}>{loading ? t('bulkUpload.parsing') : t('bulkUpload.parseText')}</button>
           </div>
         )}
 
         {parsedTransactions.length === 0 && activeTab === 'sheet' && (
           <div style={{ textAlign: 'center', padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
-            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> Select CSV / XLS File <input type="file" accept=".csv,.xls,.xlsx" onChange={handleSpreadsheetUpload} style={{ display: 'none' }} /> </label>
+            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectCsv')} <input type="file" accept=".csv,.xls,.xlsx" onChange={handleSpreadsheetUpload} style={{ display: 'none' }} /> </label>
           </div>
         )}
 
         {parsedTransactions.length === 0 && activeTab === 'pdf' && (
           <div style={{ textAlign: 'center', padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
-            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> Select PDF <input type="file" accept=".pdf" onChange={handlePdfUpload} style={{ display: 'none' }} /> </label>
+            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectPdf')} <input type="file" accept=".pdf" onChange={handlePdfUpload} style={{ display: 'none' }} /> </label>
           </div>
         )}
 
         {parsedTransactions.length === 0 && activeTab === 'image' && (
           <div style={{ padding: '16px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
             <p style={{ fontSize: '13px', color: 'var(--color-muted-foreground)', marginBottom: '12px' }}>
-              Add one photo, or several screenshots of the same receipt/statement — they're scanned together as one import.
+              {t('bulkUpload.photoHint')}
             </p>
             <ImageScanTray
               images={images}
               setImages={setImages}
               onScan={scanImages}
               scanning={loading}
-              addLabel="Add photos / screenshots"
+              addLabel={t('bulkUpload.addPhotos')}
             />
           </div>
         )}
 
         {parsedTransactions.length === 0 && activeTab === 'coophtml' && (
           <div style={{ textAlign: 'center', padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
-            <p style={{ fontSize: '13px', color: 'var(--color-muted-foreground)', marginBottom: '15px' }}>For "Estado de cuenta" .html exports from Cooperativa Profesionales, R.L.</p>
-            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> Select HTML Statement <input type="file" accept=".html,.htm" onChange={handleCooperativaHtmlUpload} style={{ display: 'none' }} /> </label>
+            <p style={{ fontSize: '13px', color: 'var(--color-muted-foreground)', marginBottom: '15px' }}>{t('bulkUpload.coopHint')}</p>
+            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectHtml')} <input type="file" accept=".html,.htm" onChange={handleCooperativaHtmlUpload} style={{ display: 'none' }} /> </label>
           </div>
         )}
 
         {parsedTransactions.length === 0 && activeTab === 'unfcu' && (
           <div style={{ textAlign: 'center', padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
-            <p style={{ fontSize: '13px', color: 'var(--color-muted-foreground)', marginBottom: '15px' }}>For UNFCU PDF statements -- either the Visa/credit card statement or the general Membership/Savings/Loan statement.</p>
-            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> Select UNFCU PDF <input type="file" accept=".pdf" onChange={handleUnfcuPdfUpload} style={{ display: 'none' }} /> </label>
+            <p style={{ fontSize: '13px', color: 'var(--color-muted-foreground)', marginBottom: '15px' }}>{t('bulkUpload.unfcuHint')}</p>
+            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectUnfcu')} <input type="file" accept=".pdf" onChange={handleUnfcuPdfUpload} style={{ display: 'none' }} /> </label>
           </div>
         )}
 
         {parsedTransactions.length > 0 && (
           <div>
             <h3>
-              Preview ({parsedTransactions.length} found)
-              {parsedTransactions.some((t) => t.willFailSave) && (
+              {t('bulkUpload.previewCount', { count: parsedTransactions.length })}
+              {parsedTransactions.some((r) => r.willFailSave) && (
                 <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#b91c1c', marginLeft: '10px' }}>
-                  Blocked: {parsedTransactions.filter((t) => t.willFailSave).length} will be skipped (exact duplicate)
+                  {t('bulkUpload.blockedBanner', { count: parsedTransactions.filter((r) => r.willFailSave).length })}
                 </span>
               )}
-              {parsedTransactions.some((t) => t.isDuplicate && !t.willFailSave) && (
+              {parsedTransactions.some((r) => r.isDuplicate && !r.willFailSave) && (
                 <span style={{ fontSize: '14px', fontWeight: 'normal', color: '#a16207', marginLeft: '10px' }}>
-                  Review: {parsedTransactions.filter((t) => t.isDuplicate && !t.willFailSave).length} possible duplicate{parsedTransactions.filter((t) => t.isDuplicate && !t.willFailSave).length === 1 ? '' : 's'} - review before saving
+                  {(() => { const n = parsedTransactions.filter((r) => r.isDuplicate && !r.willFailSave).length; return n === 1 ? t('bulkUpload.reviewBanner', { count: n }) : t('bulkUpload.reviewBannerPlural', { count: n }); })()}
                 </span>
               )}
             </h3>
@@ -970,60 +972,60 @@ return (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
                 <thead style={{ background: 'var(--color-muted)', position: 'sticky', top: 0 }}>
                   <tr>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>Date</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>Description</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>Account</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>Category</th>
-                    <th style={{ padding: '8px', textAlign: 'left' }}>Bucket</th>
-                    <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
-                    <th style={{ padding: '8px', textAlign: 'center' }}>Del</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('bulkUpload.thDate')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('bulkUpload.thDescription')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('bulkUpload.thAccount')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('bulkUpload.thCategory')}</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>{t('bulkUpload.thBucket')}</th>
+                    <th style={{ padding: '8px', textAlign: 'right' }}>{t('bulkUpload.thAmount')}</th>
+                    <th style={{ padding: '8px', textAlign: 'center' }}>{t('bulkUpload.thDel')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {parsedTransactions.map((t, idx) => {
-                    const looksSuspicious = Number(t.amount) === 0;
-                    const rowBackground = t.willFailSave ? '#fde8e8' : (t.isDuplicate ? '#fff8e6' : (looksSuspicious ? '#fff3f3' : 'transparent'));
+                  {parsedTransactions.map((row, idx) => {
+                    const looksSuspicious = Number(row.amount) === 0;
+                    const rowBackground = row.willFailSave ? '#fde8e8' : (row.isDuplicate ? '#fff8e6' : (looksSuspicious ? '#fff3f3' : 'transparent'));
                     return (
                     <tr key={idx} style={{ borderBottom: '1px solid var(--color-border)', background: rowBackground }}>
-                      <td style={{ padding: '8px' }}>{t.transaction_date ? t.transaction_date.slice(0, 10) : ''}</td>
+                      <td style={{ padding: '8px' }}>{row.transaction_date ? row.transaction_date.slice(0, 10) : ''}</td>
                       <td style={{ padding: '8px' }}>
-                        {looksSuspicious && 'Warning: '}
-                        {t.willFailSave ? 'Blocked: ' : (t.isDuplicate && 'Review: ')}
-                        {t.description}
-                        {t.isDuplicate && (
-                          <div style={{ fontSize: '11px', color: t.willFailSave ? '#b91c1c' : '#a16207', marginTop: '2px', fontWeight: t.willFailSave ? 'bold' : 'normal' }}>
-                            {t.willFailSave ? 'Will be skipped on save - ' : 'Possible duplicate - '}{t.duplicateNote}
+                        {looksSuspicious && t('bulkUpload.warningPrefix')}
+                        {row.willFailSave ? t('bulkUpload.blockedPrefix') : (row.isDuplicate && t('bulkUpload.reviewPrefix'))}
+                        {row.description}
+                        {row.isDuplicate && (
+                          <div style={{ fontSize: '11px', color: row.willFailSave ? '#b91c1c' : '#a16207', marginTop: '2px', fontWeight: row.willFailSave ? 'bold' : 'normal' }}>
+                            {row.willFailSave ? t('bulkUpload.willSkip') : t('bulkUpload.possibleDup')}{row.duplicateNote}
                           </div>
                         )}
                       </td>
                       <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
-                        {t.account_name || selectedAccount}
+                        {row.account_name || selectedAccount}
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input
                           type="text"
-                          value={t.category_guess || 'Uncategorized'}
+                          value={row.category_guess || 'Uncategorized'}
                           onChange={(ev) => updateTransactionField(idx, 'category_guess', ev.target.value)}
                           style={{ width: '100%', padding: '4px', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: '13px' }}
                         />
-                        {t.matchedRule && (
-                          <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>Matched your rule ({t.matchedRule})</div>
+                        {row.matchedRule && (
+                          <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>{t('bulkUpload.matchedRule', { rule: row.matchedRule })}</div>
                         )}
-                        {t.learnedFromHistory && !t.matchedRule && (
-                          <div style={{ fontSize: '10px', color: '#15803d', marginTop: '2px' }}>Learned from your history</div>
+                        {row.learnedFromHistory && !row.matchedRule && (
+                          <div style={{ fontSize: '10px', color: '#15803d', marginTop: '2px' }}>{t('bulkUpload.learnedFromHistory')}</div>
                         )}
                       </td>
                       <td style={{ padding: '8px' }}>
                         <select
-                          value={t.bucket_guess || 'Unsorted'}
+                          value={row.bucket_guess || 'Unsorted'}
                           onChange={(ev) => updateTransactionField(idx, 'bucket_guess', ev.target.value)}
                           style={{ width: '100%', padding: '4px', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: '13px' }}
                         >
-                          {BUCKET_OPTIONS.map((b) => <option key={b} value={b}>{b}</option>)}
+                          {BUCKET_OPTIONS.map((b) => <option key={b} value={b}>{t(`buckets.${String(b).toLowerCase()}`)}</option>)}
                         </select>
                       </td>
-                      <td style={{ padding: '8px', textAlign: 'right', color: t.amount < 0 ? 'red' : 'green' }}>${Number(t.amount).toFixed(2)}</td>
-                      <td style={{ padding: '8px', textAlign: 'center' }}><button onClick={() => removeTransaction(idx)} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>Delete</button></td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: row.amount < 0 ? 'red' : 'green' }}>${Number(row.amount).toFixed(2)}</td>
+                      <td style={{ padding: '8px', textAlign: 'center' }}><button onClick={() => removeTransaction(idx)} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>{t('bulkUpload.delete')}</button></td>
                     </tr>
                     );
                   })}
@@ -1032,8 +1034,8 @@ return (
             </div>
 
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => setParsedTransactions([])} style={{ flex: 1, padding: '12px', background: 'var(--color-muted)', border: 'none', borderRadius: '5px' }}>Discard</button>
-              <button onClick={handleSaveToDatabase} disabled={loading} style={{ flex: 2, padding: '12px', background: '#34C759', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold' }}>{loading ? 'Saving...' : (parsedTransactions.some((t) => t.account_name) ? 'Save detected accounts' : `Save to ${selectedAccount}`)}</button>
+              <button onClick={() => setParsedTransactions([])} style={{ flex: 1, padding: '12px', background: 'var(--color-muted)', border: 'none', borderRadius: '5px' }}>{t('bulkUpload.discard')}</button>
+              <button onClick={handleSaveToDatabase} disabled={loading} style={{ flex: 2, padding: '12px', background: '#34C759', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold' }}>{loading ? t('bulkUpload.saving') : (parsedTransactions.some((r) => r.account_name) ? t('bulkUpload.saveDetected') : t('bulkUpload.saveTo', { account: selectedAccount }))}</button>
             </div>
           </div>
         )}

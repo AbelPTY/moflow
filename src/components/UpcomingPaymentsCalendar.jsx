@@ -14,8 +14,12 @@ import {
 import Icon from './AppIcon';
 import Button from './ui/Button';
 import useScheduledPayments from '../hooks/useScheduledPayments';
+import { useI18n } from '../i18n';
 
 const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
+  const { t, formatDate } = useI18n();
+  // Localized weekday abbreviations (Sun..Sat), from a known reference week.
+  const weekdayLabels = Array.from({ length: 7 }, (_, i) => formatDate(new Date(2023, 0, 1 + i), { weekday: 'short' }));
   const { payments, loading, addPayment, deletePayment, updatePayment } = useScheduledPayments();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -156,10 +160,10 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
   // --- RENDERING HELPERS ---
   const renderHeader = () => (
     <div className="flex justify-between items-center mb-4">
-      <h3 className="text-lg font-bold text-foreground">Upcoming Payments</h3>
+      <h3 className="text-lg font-bold text-foreground">{t('bills.upcomingPayments')}</h3>
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" iconName="ChevronLeft" onClick={prevMonth} />
-        <span className="font-bold text-sm min-w-[100px] text-center">{format(currentDate, 'MMMM yyyy')}</span>
+        <span className="font-bold text-sm min-w-[100px] text-center">{formatDate(currentDate, { month: 'long', year: 'numeric' })}</span>
         <Button variant="ghost" size="icon" iconName="ChevronRight" onClick={nextMonth} />
       </div>
     </div>
@@ -225,13 +229,13 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
   const renderSidebar = () => (
     <div className="mt-6 lg:mt-0 lg:ml-6 lg:w-1/3 flex flex-col">
       <h4 className="font-bold text-foreground mb-4 border-b border-border pb-2">
-        {isSameDay(selectedDate, new Date()) ? 'Today' : format(selectedDate, 'MMM do, yyyy')}
+        {isSameDay(selectedDate, new Date()) ? t('bills.today') : formatDate(selectedDate, { month: 'short', day: 'numeric', year: 'numeric' })}
       </h4>
 
       {!isAdding ? (
         <div className="space-y-3">
           {selectedPayments.length === 0 ? (
-            <p className="text-sm text-muted-foreground italic text-center py-8">No payments scheduled.</p>
+            <p className="text-sm text-muted-foreground italic text-center py-8">{t('bills.noPaymentsScheduled')}</p>
           ) : (
             selectedPayments.map((payment) => {
               // Read-only card statement due dates (from the Cards tab): shown
@@ -246,7 +250,7 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
                       </div>
                       <div>
                         <p className={`font-bold text-sm ${cardPaid ? 'text-green-800 line-through' : 'text-blue-900'}`}>{payment.entity}</p>
-                        <p className={`text-[10px] uppercase font-bold ${cardPaid ? 'text-green-600' : 'text-blue-500'}`}>{cardPaid ? 'Paid · Card' : 'Card · manage on Cards tab'}</p>
+                        <p className={`text-[10px] uppercase font-bold ${cardPaid ? 'text-green-600' : 'text-blue-500'}`}>{cardPaid ? t('bills.paidCard') : t('bills.cardManage')}</p>
                       </div>
                     </div>
                     <p className={`font-mono font-bold ${cardPaid ? 'text-green-700' : 'text-blue-700'}`}>${Number(payment.amount).toFixed(2)}</p>
@@ -265,8 +269,8 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
                       <input type="text" value={editForm.entity} onChange={e => setEditForm({...editForm, entity: e.target.value})} className="text-xs border rounded p-1" />
                       <input type="number" value={editForm.amount} onChange={e => setEditForm({...editForm, amount: e.target.value})} className="text-xs border rounded p-1" />
                       <div className="flex gap-1">
-                        <Button size="sm" onClick={() => handleEditSave(payment.id)}>Save</Button>
-                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
+                        <Button size="sm" onClick={() => handleEditSave(payment.id)}>{t('bills.save')}</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>{t('common.cancel')}</Button>
                       </div>
                     </div>
                   ) : (
@@ -279,9 +283,9 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
                           <p className={`font-bold text-sm transition-all ${isPaid ? 'text-green-800 line-through' : 'text-foreground'}`}>
                             {payment.entity}
                             {/* THE AUTOPILOT INDICATOR ICON */}
-                            {payment.is_recurring && <span title="Recurring" className="ml-2 text-blue-500 text-xs">🔄</span>}
+                            {payment.is_recurring && <span title={t('bills.recurringTitle')} className="ml-2 text-blue-500 text-xs">🔄</span>}
                           </p>
-                          <p className={`text-[10px] uppercase font-bold ${isPaid ? 'text-green-600' : isOverdue ? 'text-red-600' : 'text-muted-foreground'}`}>{isOverdue ? 'Overdue' : payment.status}</p>
+                          <p className={`text-[10px] uppercase font-bold ${isPaid ? 'text-green-600' : isOverdue ? 'text-red-600' : 'text-muted-foreground'}`}>{isOverdue ? t('bills.overdue') : (isPaid ? t('bills.paid') : t('bills.pending'))}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -297,13 +301,13 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
               );
             })
           )}
-          <Button variant="outline" className="w-full border-dashed mt-4 text-xs" iconName="Plus" onClick={() => setIsAdding(true)}>Add Payment</Button>
+          <Button variant="outline" className="w-full border-dashed mt-4 text-xs" iconName="Plus" onClick={() => setIsAdding(true)}>{t('bills.addPayment')}</Button>
         </div>
       ) : (
         <form onSubmit={handleAddSubmit} className="bg-muted/20 p-4 rounded-lg border border-border flex flex-col gap-3">
-          <p className="text-sm font-bold">New Payment for {format(selectedDate, 'MMM do')}</p>
-          <input type="text" placeholder="Entity" value={newEntity} onChange={e => setNewEntity(e.target.value)} className="border rounded p-2 text-sm" autoFocus required />
-          <input type="number" placeholder="Amount" value={newAmount} onChange={e => setNewAmount(e.target.value)} className="border rounded p-2 text-sm" step="0.01" required />
+          <p className="text-sm font-bold">{t('bills.newPaymentFor', { date: formatDate(selectedDate, { month: 'short', day: 'numeric' }) })}</p>
+          <input type="text" placeholder={t('bills.entity')} value={newEntity} onChange={e => setNewEntity(e.target.value)} className="border rounded p-2 text-sm" autoFocus required />
+          <input type="number" placeholder={t('bills.amount')} value={newAmount} onChange={e => setNewAmount(e.target.value)} className="border rounded p-2 text-sm" step="0.01" required />
 
           {/* THE NEW CHECKBOX FOR RECURRING PAYMENTS */}
           <div className="flex items-center gap-2 mb-1">
@@ -315,13 +319,13 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
               className="w-4 h-4 text-blue-600 rounded border-border cursor-pointer"
             />
             <label htmlFor="is_recurring" className="text-xs text-muted-foreground cursor-pointer">
-              Recurring monthly
+              {t('bills.recurringMonthly')}
             </label>
           </div>
 
           <div className="flex gap-2">
-            <Button type="button" variant="ghost" className="flex-1" onClick={() => setIsAdding(false)}>Cancel</Button>
-            <Button type="submit" className="flex-1">Save</Button>
+            <Button type="button" variant="ghost" className="flex-1" onClick={() => setIsAdding(false)}>{t('common.cancel')}</Button>
+            <Button type="submit" className="flex-1">{t('bills.save')}</Button>
           </div>
         </form>
       )}
@@ -338,7 +342,7 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
           <div className="flex-1 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
             <Icon name="AlertTriangle" size={16} className="text-red-600 shrink-0" />
             <p className="text-sm text-red-800">
-              <span className="font-bold">{overdue.length} overdue</span> — ${overdueTotal.toFixed(2)} total
+              <span className="font-bold">{t('bills.overdueSummary', { count: overdue.length })}</span> {t('bills.totalLine', { amount: `$${overdueTotal.toFixed(2)}` })}
             </p>
           </div>
         )}
@@ -346,7 +350,7 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
           <div className="flex-1 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2">
             <Icon name="Clock" size={16} className="text-amber-600 shrink-0" />
             <p className="text-sm text-amber-800">
-              <span className="font-bold">{upcoming.length} due this week</span> — ${upcomingTotal.toFixed(2)} total
+              <span className="font-bold">{t('bills.dueThisWeek', { count: upcoming.length })}</span> {t('bills.totalLine', { amount: `$${upcomingTotal.toFixed(2)}` })}
             </p>
           </div>
         )}
@@ -361,7 +365,7 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
         <div className="flex-1">
           {renderHeader()}
           <div className="grid grid-cols-7 mb-2 border-b border-border">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="text-center text-xs font-bold text-muted-foreground uppercase py-2">{d}</div>)}
+            {weekdayLabels.map((d, i) => <div key={i} className="text-center text-xs font-bold text-muted-foreground uppercase py-2">{d}</div>)}
           </div>
           {renderCells()}
         </div>

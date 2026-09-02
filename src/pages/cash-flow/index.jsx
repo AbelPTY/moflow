@@ -8,6 +8,7 @@ import ExtraIncomePanel from './ExtraIncomePanel';
 import CashAccountsPanel from './CashAccountsPanel';
 import BalanceScanner from '../../components/BalanceScanner';
 import Icon from '../../components/AppIcon';
+import { useI18n } from '../../i18n';
 import useOnboarding from '../../hooks/useOnboarding';
 import { trackProductEvent } from '../../lib/analytics';
 import useScheduledPayments from '../../hooks/useScheduledPayments';
@@ -324,6 +325,7 @@ const nextMonthlyDateAfter = (lastDate, typicalDay, start) => {
 };
 
 const CashFlow = () => {
+  const { t } = useI18n();
   const { payments, loading: payLoading } = useScheduledPayments();
   const { transactions, loading: txLoading } = useTransactions(null, {
     filters: { dateRange: 'all' },
@@ -879,7 +881,15 @@ const CashFlow = () => {
   const isLongRange = windowDays > LONG_RANGE_DAYS;
   // Custom = today is a valid 0-day window internally, but should read "Today".
   const isCustomToday = lookaheadMode === 'custom' && windowDays === 0;
-  const horizonShort = isCustomToday ? 'today' : `${windowDays}d`;
+  const horizonShort = isCustomToday ? t('flow.todayShort') : `${windowDays}d`;
+  // Horizon phrase for "included in your {horizon} projection" style copy.
+  const horizonPhrase = isCustomToday ? t('flow.horizonTodayPossessive') : t('flow.horizonDayShort', { days: windowDays });
+  // Locale-aware timeline event-type label (canonical row.type unchanged).
+  const eventTypeLabel = (type) => {
+    const key = `flow.eventTypes.${type}`;
+    const val = t(key);
+    return val === key ? t('flow.eventTypes.default') : val;
+  };
 
   // --- Extra-income CRUD (persisted) ---
   const persistExtraIncome = (next) => {
@@ -973,7 +983,8 @@ const CashFlow = () => {
       events.push({
         date: item.nextDate,
         dateStr: item.nextDateStr,
-        label: `${item.label} (recurring Yappy)`,
+        label: item.label,
+        isRecurringYappy: true,
         amount: -Math.abs(item.amount),
         type: 'recurring-yappy',
       });
@@ -1234,10 +1245,9 @@ const CashFlow = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-28 md:pb-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold">Flow</h1>
+          <h1 className="text-3xl font-bold">{t('flow.title')}</h1>
           <p className="text-sm text-muted-foreground font-medium mt-1">
-            See what your cash is likely to look like after income, known
-            commitments, and normal spending behavior.
+            {t('flow.subtitle')}
           </p>
         </div>
 
@@ -1258,7 +1268,7 @@ const CashFlow = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
             <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-              Available cash now
+              {t('flow.availableCashNow')}
             </label>
             <div className="flex items-center gap-1">
               <span className="text-2xl font-bold text-muted-foreground">
@@ -1288,18 +1298,18 @@ const CashFlow = () => {
               className="mt-1.5 inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700"
             >
               <Icon name="Camera" size={14} />
-              Scan balances
+              {t('flow.scanBalances')}
             </button>
             {balanceApplied && (
               <p className="text-[11px] font-semibold text-emerald-600 mt-1">
-                Available cash updated.
+                {t('flow.availableCashUpdated')}
               </p>
             )}
           </div>
 
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
             <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-              Recurring income
+              {t('flow.recurringIncome')}
             </label>
             <div className="flex items-center gap-2">
               <span className="text-xl font-bold text-muted-foreground">
@@ -1312,7 +1322,7 @@ const CashFlow = () => {
                 placeholder="0"
                 className="w-24 text-xl font-bold text-emerald-600 outline-none bg-transparent"
               />
-              <span className="text-sm text-muted-foreground">on day</span>
+              <span className="text-sm text-muted-foreground">{t('flow.onDay')}</span>
               <input
                 type="number"
                 min="1"
@@ -1324,21 +1334,21 @@ const CashFlow = () => {
               />
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Auto-detected from history and editable.
+              {t('flow.incomeAutoDetected')}
             </p>
           </div>
 
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                Expected everyday spending
+                {t('flow.expectedEverydaySpending')}
               </label>
               <button
                 type="button"
                 onClick={resetDailySpend}
                 className="text-[10px] font-bold text-blue-600 hover:text-blue-700"
               >
-                Use history
+                {t('flow.useHistory')}
               </button>
             </div>
 
@@ -1355,17 +1365,17 @@ const CashFlow = () => {
                 placeholder="0.00"
                 className="w-full text-xl font-bold text-foreground outline-none bg-transparent"
               />
-              <span className="text-sm text-muted-foreground">/ day</span>
+              <span className="text-sm text-muted-foreground">{t('flow.perDay')}</span>
             </div>
 
             <p className="text-[11px] text-muted-foreground mt-1">
-              Typical variable spending across cash, debit, and credit cards.
+              {t('flow.typicalVariableSpending')}
             </p>
           </div>
 
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm flex flex-col justify-between">
             <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
-              Look ahead
+              {t('flow.lookAheadLabel')}
             </label>
             <div className="flex w-full gap-1 rounded-xl border border-border bg-muted/40 p-1">
               {WINDOW_OPTIONS.map((days) => {
@@ -1392,7 +1402,7 @@ const CashFlow = () => {
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                Custom
+                {t('flow.horizonCustom')}
               </button>
             </div>
 
@@ -1407,7 +1417,7 @@ const CashFlow = () => {
                 />
                 {customDate && !customDateValid && (
                   <p className="text-[11px] text-red-600 mt-1">
-                    Pick a date that is today or later to use it as your forecast end.
+                    {t('flow.customDateInvalid')}
                   </p>
                 )}
               </div>
@@ -1417,8 +1427,7 @@ const CashFlow = () => {
 
         {isLongRange && (
           <p className="text-[11px] text-muted-foreground -mt-2 mb-6">
-            Longer-range projections are inherently less certain: expected everyday
-            spending is estimated from your recent history, not guaranteed.
+            {t('flow.longRangeNote')}
           </p>
         )}
 
@@ -1455,7 +1464,7 @@ const CashFlow = () => {
 
         {loading ? (
           <div className="bg-card p-12 rounded-xl border border-border text-center text-muted-foreground">
-            Loading cash flow...
+            {t('flow.loadingCashFlow')}
           </div>
         ) : (
           <>
@@ -1463,7 +1472,7 @@ const CashFlow = () => {
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
                 <div>
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                    Projected available cash
+                    {t('flow.projectedAvailable')}
                   </p>
                   <p
                     className={`text-4xl md:text-5xl font-extrabold mt-1 ${
@@ -1476,35 +1485,35 @@ const CashFlow = () => {
                   </p>
                   <p className="text-sm text-muted-foreground mt-2">
                     {isCustomToday
-                      ? 'Estimated cash position as of today.'
-                      : `Estimated cash position ${windowDays} days from now.`}
+                      ? t('flow.cashPositionToday')
+                      : t('flow.cashPositionDays', { days: windowDays })}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-x-5 gap-y-3 text-sm">
-                  <BreakdownItem label="Cash now" value={money(cash)} />
+                  <BreakdownItem label={t('flow.cashNow')} value={money(cash)} />
                   <BreakdownItem
-                    label="Income"
+                    label={t('flow.income')}
                     value={`+${money(proj.totalIncome)}`}
                     tone="positive"
                   />
                   {proj.totalExtraIncome > 0 && (
                     <BreakdownItem
-                      label="Extra income"
+                      label={t('flow.extraIncome')}
                       value={`+${money(proj.totalExtraIncome)}`}
                       tone="positive"
                     />
                   )}
                   <BreakdownItem
-                    label="Known"
+                    label={t('flow.known')}
                     value={`-${money(proj.totalKnownCommitments)}`}
                   />
                   <BreakdownItem
-                    label="Expected cash"
+                    label={t('flow.expectedCash')}
                     value={`-${money(proj.totalExpectedCashSpending)}`}
                   />
                   <BreakdownItem
-                    label="What-if"
+                    label={t('flow.whatIf')}
                     value={`-${money(proj.totalScenarioSpend)}`}
                   />
                 </div>
@@ -1512,8 +1521,7 @@ const CashFlow = () => {
 
               {!hasSpendEstimate && (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  No everyday-spending estimate is active. This projection
-                  currently reflects known commitments and income only.
+                  {t('flow.noSpendEstimate')}
                 </div>
               )}
             </div>
@@ -1527,18 +1535,17 @@ const CashFlow = () => {
                   </div>
                   <div className="min-w-0">
                     <p className="font-extrabold text-foreground">
-                      Want a more realistic projection?
+                      {t('flow.wantRealisticProjection')}
                     </p>
                     <p className="text-sm text-muted-foreground mt-0.5">
-                      Scan recent activity so MoFlow can learn from your actual spending
-                      and recurring payments.
+                      {t('flow.scanActivityPrompt')}
                     </p>
                     <div className="mt-4 flex flex-col-reverse sm:flex-row gap-2">
                       <button
                         onClick={() => updateOnboarding({ activityPromptDismissed: true })}
                         className="px-5 py-3 min-h-[48px] rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
                       >
-                        Not now
+                        {t('flow.notNow')}
                       </button>
                       <button
                         onClick={() => {
@@ -1548,7 +1555,7 @@ const CashFlow = () => {
                         className="inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 transition-colors"
                       >
                         <Icon name="Camera" size={18} />
-                        Scan recent activity
+                        {t('activity.scanRecentActivity')}
                       </button>
                     </div>
                   </div>
@@ -1560,30 +1567,24 @@ const CashFlow = () => {
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
                   <p className="text-sm font-bold text-blue-900">
-                    Spending behavior model
+                    {t('flow.spendingBehaviorModel')}
                   </p>
                   <p className="text-xs text-blue-800 mt-1">
-                    Typical week: {money(spendingModel.weeklyMedian)} based on
-                    the median of up to {HISTORY_WEEKS} recent weeks.
-                    Historically, about {percent(spendingModel.cardShare)} of
-                    qualifying everyday spending used credit cards and{' '}
-                    {percent(spendingModel.cashShare)} used cash/debit.
+                    {t('flow.typicalWeek', { amount: money(spendingModel.weeklyMedian), weeks: HISTORY_WEEKS, cardPct: percent(spendingModel.cardShare), cashPct: percent(spendingModel.cashShare) })}
                   </p>
                 </div>
                 <div className="text-xs text-blue-900 md:text-right shrink-0">
                   <p>
-                    Cash impact: <strong>{money(dailyCashSpend)}/day</strong>
+                    {t('flow.cashImpact')} <strong>{money(dailyCashSpend)}{t('flow.perDaySuffix')}</strong>
                   </p>
                   <p>
-                    Card accrual: <strong>{money(dailyCardSpend)}/day</strong>
+                    {t('flow.cardAccrual')} <strong>{money(dailyCardSpend)}{t('flow.perDaySuffix')}</strong>
                   </p>
                 </div>
               </div>
 
               <p className="text-[11px] text-blue-700 mt-2">
-                New card purchases are tracked as expected card accrual, not
-                as immediate cash outflow. Existing statement balances due
-                inside the forecast are already counted as known commitments.
+                {t('flow.cardPurchaseNote')}
               </p>
             </div>
 
@@ -1592,17 +1593,15 @@ const CashFlow = () => {
                 <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-3">
                   <div>
                     <p className="text-sm font-bold text-foreground">
-                      Recurring Yappy commitments
+                      {t('flow.recurringYappyCommitments')}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      MoFlow infers monthly fixed expenses from Yappy history.
-                      Confirm, edit, or ignore each one. Ignoring a recurrence
-                      never deletes historical transactions.
+                      {t('flow.yappyInferNote')}
                     </p>
                   </div>
                   <div className="text-xs text-muted-foreground shrink-0">
-                    {recurringYappyAdjusted.length} active
-                    {ignoredYappyCount > 0 ? ` · ${ignoredYappyCount} ignored` : ''}
+                    {t('flow.activeCount', { count: recurringYappyAdjusted.length })}
+                    {ignoredYappyCount > 0 ? t('flow.ignoredSuffix', { count: ignoredYappyCount }) : ''}
                   </div>
                 </div>
 
@@ -1627,7 +1626,7 @@ const CashFlow = () => {
                           <div className="grid grid-cols-1 md:grid-cols-[1fr_150px_170px_auto] gap-2 items-end">
                             <div>
                               <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                                Name
+                                {t('flow.name')}
                               </label>
                               <input
                                 type="text"
@@ -1644,7 +1643,7 @@ const CashFlow = () => {
 
                             <div>
                               <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                                Expected amount
+                                {t('flow.expectedAmount')}
                               </label>
                               <input
                                 type="number"
@@ -1663,7 +1662,7 @@ const CashFlow = () => {
 
                             <div>
                               <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-                                Next expected date
+                                {t('flow.nextExpectedDate')}
                               </label>
                               <input
                                 type="date"
@@ -1684,14 +1683,14 @@ const CashFlow = () => {
                                 onClick={() => saveYappyEdit(item)}
                                 className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold"
                               >
-                                Save
+                                {t('common.save')}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setEditingYappyKey(null)}
                                 className="px-3 py-2 rounded-lg bg-muted text-xs font-bold text-muted-foreground"
                               >
-                                Cancel
+                                {t('common.cancel')}
                               </button>
                             </div>
                           </div>
@@ -1709,17 +1708,17 @@ const CashFlow = () => {
                                       : 'bg-amber-100 text-amber-700'
                                   }`}
                                 >
-                                  {item.confirmed ? 'Confirmed' : 'Detected'}
+                                  {item.confirmed ? t('flow.confirmed') : t('flow.detected')}
                                 </span>
                                 {item.userAdjusted && (
                                   <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                                    Adjusted
+                                    {t('flow.adjusted')}
                                   </span>
                                 )}
                               </div>
 
                               <p className="text-xs text-muted-foreground mt-1">
-                                Next expected {item.nextDateStr} · {money(item.amount)}
+                                {t('flow.nextExpected', { date: item.nextDateStr, amount: money(item.amount) })}
                               </p>
 
                               <p
@@ -1730,8 +1729,8 @@ const CashFlow = () => {
                                 }`}
                               >
                                 {includedInForecast
-                                  ? `Included in your ${isCustomToday ? "today's" : `${windowDays}-day`} cash projection.`
-                                  : `Outside your current ${isCustomToday ? "today's" : `${windowDays}-day`} forecast.`}
+                                  ? t('flow.includedInProjection', { horizon: horizonPhrase })
+                                  : t('flow.outsideForecast', { horizon: horizonPhrase })}
                               </p>
                             </div>
 
@@ -1742,7 +1741,7 @@ const CashFlow = () => {
                                   onClick={() => confirmYappy(item)}
                                   className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold"
                                 >
-                                  Confirm
+                                  {t('flow.confirm')}
                                 </button>
                               )}
                               <button
@@ -1750,14 +1749,14 @@ const CashFlow = () => {
                                 onClick={() => startEditingYappy(item)}
                                 className="px-3 py-1.5 rounded-lg bg-muted text-foreground text-xs font-bold"
                               >
-                                Edit
+                                {t('common.edit')}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => ignoreYappy(item)}
                                 className="px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-xs font-bold"
                               >
-                                Ignore recurrence
+                                {t('flow.ignoreRecurrence')}
                               </button>
                             </div>
                           </div>
@@ -1770,7 +1769,7 @@ const CashFlow = () => {
                 {ignoredYappyCount > 0 && (
                   <div className="mt-4 border-t border-border pt-3">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                      Ignored recurrences
+                      {t('flow.ignoredRecurrences')}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {Object.entries(yappyOverrides)
@@ -1782,7 +1781,7 @@ const CashFlow = () => {
                             onClick={() => restoreIgnoredYappy(key)}
                             className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground"
                           >
-                            Restore {value?.label || key.replace('provider:', '')}
+                            {t('flow.restore', { name: value?.label || key.replace('provider:', '') })}
                           </button>
                         ))}
                     </div>
@@ -1793,41 +1792,33 @@ const CashFlow = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
               <SummaryStat
-                label={`Known commitments (${horizonShort})`}
+                label={t('flow.knownCommitmentsShort', { horizon: horizonShort })}
                 value={money(proj.totalKnownCommitments)}
-                sub={`${money(proj.totalBills)} bills + ${money(
-                  proj.totalCards
-                )} card statements + ${money(
-                  proj.totalRecurringYappy
-                )} recurring Yappy`}
+                sub={t('flow.knownCommitmentsSub', { bills: money(proj.totalBills), cards: money(proj.totalCards), yappy: money(proj.totalRecurringYappy) })}
                 tone="neutral"
               />
 
               <SummaryStat
-                label={`Expected lifestyle spend (${horizonShort})`}
+                label={t('flow.expectedLifestyleSpend', { horizon: horizonShort })}
                 value={money(proj.totalExpectedLifestyleSpending)}
-                sub={`${money(
-                  proj.totalExpectedCashSpending
-                )} cash impact + ${money(
-                  proj.expectedCardAccrual
-                )} card accrual`}
+                sub={t('flow.expectedLifestyleSub', { cash: money(proj.totalExpectedCashSpending), card: money(proj.expectedCardAccrual) })}
                 tone="neutral"
               />
 
               <SummaryStat
-                label="Projected low point"
+                label={t('flow.projectedLowPoint')}
                 value={money(proj.lowest)}
                 sub={
                   proj.lowestDate
-                    ? `on ${proj.lowestDate}`
-                    : 'no decline in range'
+                    ? t('flow.onDate', { date: proj.lowestDate })
+                    : t('flow.noDeclineInRange')
                 }
                 tone={proj.lowest < 0 ? 'danger' : 'positive'}
               />
 
               <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
                 <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-                  What-if cash spend
+                  {t('flow.whatIfCashSpend')}
                 </label>
                 <div className="flex items-center gap-2">
                   <span className="text-xl font-bold text-muted-foreground">
@@ -1848,12 +1839,12 @@ const CashFlow = () => {
                       onClick={() => setWhatIfSpend('')}
                       className="px-3 py-1.5 rounded-lg bg-muted text-xs font-bold text-muted-foreground hover:text-foreground"
                     >
-                      Clear
+                      {t('flow.clear')}
                     </button>
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Test an immediate purchase or other cash outflow today.
+                  {t('flow.whatIfNote')}
                 </p>
               </div>
             </div>
@@ -1861,51 +1852,38 @@ const CashFlow = () => {
             {proj.shortfall ? (
               <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-4">
                 <p className="font-bold text-red-800">
-                  Projected cash shortfall on {proj.shortfall.date}
+                  {t('flow.shortfallOn', { date: proj.shortfall.date })}
                 </p>
                 <p className="text-sm text-red-700 mt-1">
-                  The projection reaches{' '}
-                  <span className="font-bold">
-                    {money(proj.shortfall.balance)}
-                  </span>{' '}
-                  at{' '}
-                  <span className="font-bold">{proj.shortfall.label}</span>.
-                  Review the timing of income, commitments, expected cash
-                  spending, or the what-if scenario.
+                  {t('flow.shortfallBody', { amount: money(proj.shortfall.balance), label: proj.shortfall.label })}
                 </p>
               </div>
             ) : (
               <div className="mb-6 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                 <p className="text-sm text-emerald-800 font-medium">
-                  Projection stays above $0{' '}
-                  {isCustomToday ? 'through today' : `through the next ${windowDays} days`}{' '}
-                  based on the assumptions shown above. The lowest projected
-                  cash balance is{' '}
-                  <span className="font-bold">{money(proj.lowest)}</span>.
+                  {t('flow.staysAbove', { horizon: isCustomToday ? t('flow.throughToday') : t('flow.throughNextDays', { days: windowDays }), amount: money(proj.lowest) })}
                 </p>
               </div>
             )}
 
             <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden mb-8">
               <div className="px-5 py-3 border-b border-border">
-                <p className="font-bold text-foreground">Timeline</p>
+                <p className="font-bold text-foreground">{t('flow.timeline')}</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  This timeline shows actual cash timing, including detected
-                  recurring Yappy fixed expenses. Expected credit-card purchases
-                  are not deducted until they become a future statement obligation.
+                  {t('flow.timelineNote')}
                 </p>
               </div>
 
               {proj.rows.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground text-sm italic">
                   {isCustomToday
-                    ? 'No projected cash-flow events today.'
-                    : `No projected cash-flow events in the next ${windowDays} days.`}
+                    ? t('flow.noEventsToday')
+                    : t('flow.noEventsDays', { days: windowDays })}
                 </div>
               ) : (
                 <div className="divide-y divide-border">
                   <div className="flex items-center justify-between px-5 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wider bg-background/50">
-                    <span>Starting balance</span>
+                    <span>{t('flow.startingBalance')}</span>
                     <span>{money(cash)}</span>
                   </div>
 
@@ -1926,12 +1904,12 @@ const CashFlow = () => {
                               : 'text-muted-foreground'
                           }`}
                         >
-                          {row.overdue ? 'overdue' : row.dateStr}
+                          {row.overdue ? t('flow.overdueRow') : row.dateStr}
                         </span>
 
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-foreground truncate">
-                            {row.label}
+                            {row.label}{row.isRecurringYappy ? ` ${t('flow.recurringYappySuffix')}` : ''}
                           </p>
                           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
                             {eventTypeLabel(row.type)}
@@ -1972,20 +1950,6 @@ const CashFlow = () => {
       </div>
     </div>
   );
-};
-
-const eventTypeLabel = (type) => {
-  const labels = {
-    income: 'Income',
-    'extra-income': 'Extra income',
-    bill: 'Known bill',
-    card: 'Card statement',
-    'recurring-yappy': 'Recurring Yappy commitment',
-    'expected-cash': 'Expected cash spending',
-    scenario: 'What-if scenario',
-  };
-
-  return labels[type] || 'Cash flow';
 };
 
 const BreakdownItem = ({ label, value, tone = 'neutral' }) => {

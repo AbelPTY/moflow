@@ -56,6 +56,39 @@ export function translate(locale, key, vars) {
   return interpolate(raw, vars);
 }
 
+// Translate a transaction/budget CATEGORY name for DISPLAY only. Known canonical
+// category names (English, as stored) map to a localized label; unknown or
+// user-custom names are returned unchanged (never a raw key). Stored values are
+// never affected. Only es-PA carries a catDisplay map; en-US returns the name.
+export function translateCategory(locale, name) {
+  const key = String(name ?? '');
+  if (!key) return key;
+  const active = isSupportedLocale(locale) ? locale : DEFAULT_LOCALE;
+  const map = DICTIONARIES[active]?.catDisplay;
+  if (map && Object.prototype.hasOwnProperty.call(map, key)) return map[key];
+  return key;
+}
+
+// Localized, pluralized duration from a whole number of months. Language-neutral
+// month count in -> localized phrase out ("2 years 3 months" / "2 años 3 meses").
+// The loanMath engine stays language-neutral; this is the presentation adapter.
+const DURATION_UNITS = {
+  'en-US': { year: ['year', 'years'], month: ['month', 'months'], zero: '0 months' },
+  'es-PA': { year: ['año', 'años'], month: ['mes', 'meses'], zero: '0 meses' },
+};
+export function formatDuration(totalMonths, locale = DEFAULT_LOCALE) {
+  const loc = isSupportedLocale(locale) ? locale : DEFAULT_LOCALE;
+  const u = DURATION_UNITS[loc] || DURATION_UNITS[DEFAULT_LOCALE];
+  const m = Math.max(0, Math.round(Number(totalMonths) || 0));
+  if (m === 0) return u.zero;
+  const years = Math.floor(m / 12);
+  const months = m % 12;
+  const parts = [];
+  if (years > 0) parts.push(`${years} ${years === 1 ? u.year[0] : u.year[1]}`);
+  if (months > 0) parts.push(`${months} ${months === 1 ? u.month[0] : u.month[1]}`);
+  return parts.join(' ');
+}
+
 // Map a raw browser/device language tag to one of our canonical locales.
 // Spanish-like -> es-PA; everything else -> en-US. (es-US would slot in here.)
 export function normalizeToLocale(tag) {

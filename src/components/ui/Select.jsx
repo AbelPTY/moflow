@@ -4,13 +4,14 @@ import { ChevronDown, Check, Search, X } from "lucide-react";
 import { cn } from "../../utils/cn";
 import Button from "./Button";
 import Input from "./Input";
+import { useI18n } from "../../i18n";
 
 const Select = React.forwardRef(({
     className,
     options = [],
     value,
     defaultValue,
-    placeholder = "Select an option",
+    placeholder,
     multiple = false,
     disabled = false,
     required = false,
@@ -26,6 +27,8 @@ const Select = React.forwardRef(({
     onOpenChange,
     ...props
 }, ref) => {
+    const { t } = useI18n();
+    const ph = placeholder ?? t('ui.selectOption');
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
 
@@ -42,17 +45,17 @@ const Select = React.forwardRef(({
 
     // Get selected option(s) for display
     const getSelectedDisplay = () => {
-        if (!value) return placeholder;
+        if (!value) return ph;
 
         if (multiple) {
             const selectedOptions = options?.filter(opt => value?.includes(opt?.value));
-            if (selectedOptions?.length === 0) return placeholder;
+            if (selectedOptions?.length === 0) return ph;
             if (selectedOptions?.length === 1) return selectedOptions?.[0]?.label;
-            return `${selectedOptions?.length} items selected`;
+            return t('ui.itemsSelected', { count: selectedOptions?.length });
         }
 
         const selectedOption = options?.find(opt => opt?.value === value);
-        return selectedOption ? selectedOption?.label : placeholder;
+        return selectedOption ? selectedOption?.label : ph;
     };
 
     const handleToggle = () => {
@@ -163,7 +166,7 @@ const Select = React.forwardRef(({
                     multiple={multiple}
                     required={required}
                 >
-                    <option value="">Select...</option>
+                    <option value="">{ph}</option>
                     {options?.map(option => (
                         <option key={option?.value} value={option?.value}>
                             {option?.label}
@@ -179,7 +182,7 @@ const Select = React.forwardRef(({
                                 <div className="relative">
                                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                                     <Input
-                                        placeholder="Search options..."
+                                        placeholder={t('ui.searchOptions')}
                                         value={searchTerm}
                                         onChange={handleSearchChange}
                                         className="pl-8"
@@ -191,7 +194,7 @@ const Select = React.forwardRef(({
                         <div className="py-1 max-h-60 overflow-auto">
                             {filteredOptions?.length === 0 ? (
                                 <div className="px-3 py-2 text-sm text-muted-foreground">
-                                    {searchTerm ? 'No options found' : 'No options available'}
+                                    {searchTerm ? t('ui.noOptionsFound') : t('ui.noOptionsAvailable')}
                                 </div>
                             ) : (
                                 filteredOptions?.map((option) => (

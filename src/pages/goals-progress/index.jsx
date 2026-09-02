@@ -4,10 +4,12 @@ import useTransactions from '../../hooks/useTransactions';
 import useGoal from '../../hooks/useGoal';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Target, TrendingUp, Calendar, Plane, DollarSign, Pencil } from 'lucide-react';
+import { useI18n } from '../../i18n';
 
 const GoalsProgress = () => {
   const { transactions, loading } = useTransactions(null, { filters: { dateRange: 'all' } });
   const { goal, loading: goalLoading, saveGoal } = useGoal();
+  const { t } = useI18n();
 
   // Goal editor state
   const [isEditingGoal, setIsEditingGoal] = useState(false);
@@ -70,7 +72,7 @@ const GoalsProgress = () => {
   if (loading || goalLoading) return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mb-4"></div>
-      <p className="ml-4 text-xl font-bold text-muted-foreground">Calculating Savings Velocity...</p>
+      <p className="ml-4 text-xl font-bold text-muted-foreground">{t('goals.calculating')}</p>
     </div>
   );
 
@@ -82,16 +84,16 @@ const GoalsProgress = () => {
         {/* HEADER */}
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold">Goals & Savings</h1>
+            <h1 className="text-3xl font-bold">{t('goals.title')}</h1>
             <p className="text-sm text-muted-foreground font-medium mt-1">
-               Tracking accumulation in your "SAVINGS" bucket.
+               {t('goals.subtitle')}
             </p>
           </div>
           <button
             onClick={openGoalEditor}
             className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm font-semibold text-foreground hover:bg-background shadow-sm whitespace-nowrap"
           >
-            <Pencil size={16} /> Edit Goal
+            <Pencil size={16} /> {t('goals.editGoal')}
           </button>
         </div>
 
@@ -99,10 +101,10 @@ const GoalsProgress = () => {
         {isEditingGoal && goalForm && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-card rounded-xl shadow-xl p-6 w-full max-w-md">
-              <h3 className="text-lg font-bold mb-4">Edit Goal</h3>
+              <h3 className="text-lg font-bold mb-4">{t('goals.editGoal')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">Goal Name</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1">{t('goals.goalName')}</label>
                   <input
                     type="text"
                     value={goalForm.name}
@@ -111,7 +113,7 @@ const GoalsProgress = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">Target Amount ($)</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1">{t('goals.targetAmount')}</label>
                   <input
                     type="number"
                     value={goalForm.targetAmount}
@@ -120,7 +122,7 @@ const GoalsProgress = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">Milestone</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1">{t('goals.milestone')}</label>
                   <input
                     type="text"
                     value={goalForm.milestoneLabel}
@@ -129,7 +131,7 @@ const GoalsProgress = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-1">Milestone Detail</label>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1">{t('goals.milestoneDetail')}</label>
                   <input
                     type="text"
                     value={goalForm.milestoneSublabel}
@@ -143,13 +145,13 @@ const GoalsProgress = () => {
                   onClick={() => setIsEditingGoal(false)}
                   className="px-4 py-2 text-muted-foreground hover:bg-muted rounded-md font-medium"
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleGoalSave}
                   className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-semibold"
                 >
-                  Save Goal
+                  {t('goals.saveGoal')}
                 </button>
               </div>
             </div>
@@ -161,11 +163,11 @@ const GoalsProgress = () => {
           {/* TOTAL SAVED */}
           <div className="bg-card p-6 rounded-xl shadow-sm border border-border flex items-center justify-between">
             <div>
-              <p className="text-sm text-muted-foreground font-medium">Total Accumulated</p>
+              <p className="text-sm text-muted-foreground font-medium">{t('goals.totalAccumulated')}</p>
               <h3 className="text-3xl font-bold text-emerald-600">
                 ${goalsStats?.totalSaved.toLocaleString()}
               </h3>
-              <p className="text-xs text-muted-foreground mt-1">Real cash tagged as Savings</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('goals.realCashSaved')}</p>
             </div>
             <div className="h-12 w-12 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
               <Target size={24} />
@@ -175,11 +177,11 @@ const GoalsProgress = () => {
           {/* SAVINGS RATE */}
           <div className="bg-card p-6 rounded-xl shadow-sm border border-border flex items-center justify-between">
             <div>
-              <p className="text-sm text-muted-foreground font-medium">Savings Rate</p>
+              <p className="text-sm text-muted-foreground font-medium">{t('goals.savingsRate')}</p>
               <h3 className="text-3xl font-bold text-blue-600">
                 {goalsStats?.savingsRate.toFixed(1)}%
               </h3>
-              <p className="text-xs text-muted-foreground mt-1">Of Total Income</p>
+              <p className="text-xs text-muted-foreground mt-1">{t('goals.ofTotalIncome')}</p>
             </div>
             <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
               <TrendingUp size={24} />
@@ -189,7 +191,7 @@ const GoalsProgress = () => {
           {/* TRIP COUNTDOWN (Feb 2026) */}
           <div className="bg-card p-6 rounded-xl shadow-sm border border-border flex items-center justify-between">
             <div>
-              <p className="text-sm text-muted-foreground font-medium">Next Milestone</p>
+              <p className="text-sm text-muted-foreground font-medium">{t('goals.nextMilestone')}</p>
               <h3 className="text-xl font-bold text-foreground">{goal.milestoneLabel}</h3>
               <p className="text-xs text-muted-foreground mt-1">{goal.milestoneSublabel}</p>
             </div>
@@ -204,7 +206,7 @@ const GoalsProgress = () => {
           <div className="flex justify-between items-end mb-4">
             <div>
               <h3 className="text-lg font-bold">{goal.name}</h3>
-              <p className="text-sm text-muted-foreground">Progress toward ${goal.targetAmount.toLocaleString()} target</p>
+              <p className="text-sm text-muted-foreground">{t('goals.progressToward', { amount: goal.targetAmount.toLocaleString() })}</p>
             </div>
             <span className="text-2xl font-bold text-emerald-600">
               {(((goalsStats?.totalSaved || 0) / (goal.targetAmount || 1)) * 100).toFixed(0)}%
@@ -223,7 +225,7 @@ const GoalsProgress = () => {
 
           {/* GROWTH CHART */}
           <div className="bg-card p-6 rounded-xl shadow-sm border border-border h-96">
-            <h3 className="text-lg font-bold mb-6">Savings Growth</h3>
+            <h3 className="text-lg font-bold mb-6">{t('goals.savingsGrowth')}</h3>
             <div className="h-80 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={goalsStats?.chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -247,7 +249,7 @@ const GoalsProgress = () => {
                     tickFormatter={(val) => `$${val/1000}k`}
                   />
                   <Tooltip
-                     formatter={(value) => [`$${value.toLocaleString()}`, 'Total Saved']}
+                     formatter={(value) => [`$${value.toLocaleString()}`, t('goals.totalSaved')]}
                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
                   />
                   <Area type="monotone" dataKey="saved" stroke="#10B981" fillOpacity={1} fill="url(#colorSaved)" />
@@ -258,29 +260,29 @@ const GoalsProgress = () => {
 
           {/* RECENT WINS */}
           <div className="bg-card p-6 rounded-xl shadow-sm border border-border">
-            <h3 className="text-lg font-bold mb-6">Recent Savings Contributions</h3>
+            <h3 className="text-lg font-bold mb-6">{t('goals.recentContributions')}</h3>
             <div className="space-y-4">
-              {goalsStats?.recentSavings.map((t, i) => (
+              {goalsStats?.recentSavings.map((s, i) => (
                 <div key={i} className="flex justify-between items-center p-3 hover:bg-background rounded-lg transition-colors border border-border">
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
                       <DollarSign size={18} />
                     </div>
                     <div>
-                      <p className="font-bold text-foreground">{t.merchant || 'Savings Transfer'}</p>
+                      <p className="font-bold text-foreground">{s.merchant || t('goals.savingsTransfer')}</p>
                       <div className="flex items-center text-xs text-muted-foreground gap-1">
                         <Calendar size={12} />
-                        {t.dateString}
+                        {s.dateString}
                       </div>
                     </div>
                   </div>
                   <span className="font-bold text-emerald-600">
-                    +${Math.abs(t.amount).toLocaleString()}
+                    +${Math.abs(s.amount).toLocaleString()}
                   </span>
                 </div>
               ))}
               {goalsStats?.recentSavings.length === 0 && (
-                <p className="text-muted-foreground text-center py-4">No savings transactions found yet.</p>
+                <p className="text-muted-foreground text-center py-4">{t('goals.noSavingsYet')}</p>
               )}
             </div>
           </div>
