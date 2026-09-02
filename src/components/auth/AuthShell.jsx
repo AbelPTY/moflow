@@ -1,5 +1,6 @@
 import React from 'react';
 import BrandMark from '../BrandMark';
+import { useI18n } from '../../i18n';
 
 // Responsive authentication shell shared by sign-in / sign-up / reset and the
 // set-new-password screen, so every auth surface is on-brand and consistent.
@@ -16,6 +17,8 @@ import BrandMark from '../BrandMark';
 //   children  : the auth card (form)
 //   footer    : optional small print rendered under the card (auth column)
 export default function AuthShell({ children, footer }) {
+  const { t } = useI18n();
+  const [headA, headB] = t('auth.headline').split('\n');
   return (
     <div className="min-h-screen bg-background text-foreground lg:grid lg:grid-cols-2">
       {/* ---- Brand panel (desktop only) ---- */}
@@ -47,20 +50,18 @@ export default function AuthShell({ children, footer }) {
         {/* headline + supporting copy */}
         <div className="relative max-w-md">
           <h2 className="text-4xl font-extrabold leading-tight tracking-tight">
-            Know what&apos;s coming.
-            <br />
-            Stay in control.
+            {headA}
+            {headB && (<><br />{headB}</>)}
           </h2>
           <p className="mt-4 text-base leading-relaxed text-muted-foreground">
-            See your upcoming obligations, available cash, and financial commitments in one place —
-            so every spending decision is an informed one.
+            {t('auth.supporting')}
           </p>
         </div>
 
         {/* trust line — only claims the architecture actually supports */}
         <p className="relative text-sm text-muted-foreground">
-          <span className="font-semibold text-foreground">Private by design.</span>{' '}
-          MoFlow organizes your financial information without ever asking for your bank password.
+          <span className="font-semibold text-foreground">{t('auth.trust')}</span>{' '}
+          {t('auth.trustBody')}
         </p>
       </aside>
 
@@ -73,7 +74,7 @@ export default function AuthShell({ children, footer }) {
               <BrandMark size={30} />
             </span>
             <span className="text-2xl font-extrabold tracking-tight">MoFlow</span>
-            <p className="mt-1 text-sm text-muted-foreground">Know what&apos;s coming. Stay in control.</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('brand.tagline')}</p>
           </div>
 
           {children}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
 import { useAuth } from "../../contexts/AuthContext";
+import { useI18n } from '../../i18n';
 import NotificationBell from '../NotificationBell';
 import ThemeToggle from '../ThemeToggle';
 
@@ -10,13 +11,14 @@ const PrimaryNavBar = () => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { signOut, user } = useAuth();
+  const { t } = useI18n();
 
   const navigationItems = [
-    { label: 'Cards', path: '/cards', icon: 'CreditCard' },
-    { label: 'Flow', path: '/cash-flow', icon: 'CalendarClock' },
-    { label: 'Bills', path: '/bills', icon: 'Receipt' },
-    { label: 'Activity', path: '/financial-overview', icon: 'LayoutDashboard' },
-    { label: 'More', path: '/more', icon: 'Menu' }
+    { label: t('nav.cards'), path: '/cards', icon: 'CreditCard' },
+    { label: t('nav.flow'), path: '/cash-flow', icon: 'CalendarClock' },
+    { label: t('nav.bills'), path: '/bills', icon: 'Receipt' },
+    { label: t('nav.activity'), path: '/financial-overview', icon: 'LayoutDashboard' },
+    { label: t('nav.more'), path: '/more', icon: 'Menu' }
   ];
 
   const handleNavigation = (path) => {
@@ -94,7 +96,7 @@ const PrimaryNavBar = () => {
               <button
                 onClick={signOut}
                 className="hidden md:flex items-center justify-center p-2 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-destructive transition-colors"
-                title="Sign Out"
+                title={t('nav.signOut')}
               >
                 <Icon name="LogOut" size={20} />
               </button>
@@ -134,7 +136,7 @@ const PrimaryNavBar = () => {
                  className="flex items-center w-full px-3 py-2 rounded-md text-destructive hover:bg-destructive/10 focus:outline-none transition-colors"
                >
                  <Icon name="LogOut" size={20} className="mr-3" />
-                 Sign Out ({user?.email})
+                 {t('nav.signOut')} ({user?.email})
                </button>
              </div>
           </div>

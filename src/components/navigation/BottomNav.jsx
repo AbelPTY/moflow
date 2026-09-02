@@ -1,21 +1,23 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
+import { useI18n } from '../../i18n';
 
 // Mobile-only bottom tab bar (hidden on md+). Five primary tabs matching the
 // desktop primary navigation. "More" now navigates to a real /more page
 // instead of opening a bottom sheet.
 const PRIMARY = [
-  { label: 'Cards', path: '/cards', icon: 'CreditCard' },
-  { label: 'Flow', path: '/cash-flow', icon: 'CalendarClock' },
-  { label: 'Bills', path: '/bills', icon: 'Receipt' },
-  { label: 'Activity', path: '/financial-overview', icon: 'LayoutDashboard' },
-  { label: 'More', path: '/more', icon: 'Menu' },
+  { key: 'nav.cards', path: '/cards', icon: 'CreditCard' },
+  { key: 'nav.flow', path: '/cash-flow', icon: 'CalendarClock' },
+  { key: 'nav.bills', path: '/bills', icon: 'Receipt' },
+  { key: 'nav.activity', path: '/financial-overview', icon: 'LayoutDashboard' },
+  { key: 'nav.more', path: '/more', icon: 'Menu' },
 ];
 
 export default function BottomNav() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useI18n();
 
   const go = (path) => { navigate(path); };
   // Cards is the home route, so treat "/" as Cards for active highlighting.
@@ -33,7 +35,7 @@ export default function BottomNav() {
       {PRIMARY.map((item) => (
         <button key={item.path} onClick={() => go(item.path)} className={tabCls(isActive(item.path))}>
           <Icon name={item.icon} size={20} />
-          <span className="text-[10px] font-semibold">{item.label}</span>
+          <span className="text-[10px] font-semibold">{t(item.key)}</span>
         </button>
       ))}
     </nav>

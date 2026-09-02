@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import Icon from '../AppIcon';
 import AuthShell from './AuthShell';
+import { useI18n } from '../../i18n';
 
 // Beta sign-up is server-enforced: the browser only submits the invite code to
 // POST /api/signup, which validates it (never the browser). VITE_SIGNUP_ENABLED
@@ -14,6 +15,7 @@ const inputCls =
 
 const LoginScreen = () => {
   const { signIn, resetPassword } = useAuth();
+  const { t } = useI18n();
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +39,7 @@ const LoginScreen = () => {
       } else if (mode === 'forgot') {
         const { error: err } = await resetPassword(email);
         if (err) setError(err.message);
-        else setInfo(`If an account exists for ${email}, a reset link is on its way. Check your inbox.`);
+        else setInfo(t('auth.resetSent', { email }));
       } else if (mode === 'signup') {
         // The browser never decides whether the invite is valid; it only submits
         // it to the server, which enforces the invite and rate limits by IP.
@@ -49,43 +51,43 @@ const LoginScreen = () => {
             body: JSON.stringify({ email, password, invite_code: invite }),
           });
         } catch {
-          setError('Something went wrong — check your connection and try again.');
+          setError(t('auth.connectionError'));
           return;
         }
 
         if (res.ok) {
           // Email confirmation is on: prompt the user to confirm, then sign in.
-          setInfo(`Account created. Check ${email} to confirm your address, then sign in.`);
+          setInfo(t('auth.accountCreated', { email }));
           setMode('signin');
           setPassword('');
           setInvite(''); // never persisted; cleared from state after submit
         } else if (res.status === 403) {
-          setError('That invite code is not valid.');
+          setError(t('auth.inviteInvalid'));
         } else if (res.status === 429) {
-          setError('Too many attempts. Please try again later.');
+          setError(t('auth.tooManyAttempts'));
         } else if (res.status === 400) {
-          setError('Please enter a valid email and password.');
+          setError(t('auth.invalidEmailPassword'));
         } else {
-          setError('Sign-up is temporarily unavailable. Please try again later.');
+          setError(t('auth.signupUnavailable'));
         }
       }
     } catch {
-      setError('Something went wrong — check your connection and try again.');
+      setError(t('auth.connectionError'));
     } finally {
       setLoading(false);
     }
   };
 
-  const title = mode === 'signup' ? 'Create your account' : mode === 'forgot' ? 'Reset your password' : 'Welcome back';
-  const cta = loading ? 'Please wait…' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send reset link' : 'Sign in';
+  const title = mode === 'signup' ? t('auth.createAccount') : mode === 'forgot' ? t('auth.resetPassword') : t('auth.welcomeBack');
+  const cta = loading ? t('auth.pleaseWait') : mode === 'signup' ? t('auth.createAccountCta') : mode === 'forgot' ? t('auth.sendResetLink') : t('auth.signIn');
   const sub = mode === 'forgot'
-    ? "We'll email you a secure link to set a new password."
+    ? t('auth.forgotSub')
     : mode === 'signup'
-      ? 'Beta access — enter your invite code to join.'
-      : 'Sign in to continue.';
+      ? t('auth.signupSub')
+      : t('auth.signInToContinue');
 
   return (
-    <AuthShell footer="Private beta · Your financial data stays private — visible only to you.">
+    <AuthShell footer={t('auth.footerPrivacy')}>
       <div className="bg-card rounded-2xl shadow-xl border border-border p-7">
         <h2 className="text-lg font-bold text-foreground mb-1">{title}</h2>
         <p className="text-sm text-muted-foreground mb-5">{sub}</p>
@@ -105,16 +107,16 @@ const LoginScreen = () => {
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label htmlFor="auth-email" className="block text-xs font-semibold text-muted-foreground mb-1">Email</label>
+            <label htmlFor="auth-email" className="block text-xs font-semibold text-muted-foreground mb-1">{t('auth.email')}</label>
             <input id="auth-email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" className={inputCls} />
           </div>
 
           {mode !== 'forgot' && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label htmlFor="auth-password" className="block text-xs font-semibold text-muted-foreground">Password</label>
+                <label htmlFor="auth-password" className="block text-xs font-semibold text-muted-foreground">{t('auth.password')}</label>
                 {mode === 'signin' && (
-                  <button type="button" onClick={() => switchMode('forgot')} className="text-xs font-semibold text-primary hover:opacity-80">Forgot?</button>
+                  <button type="button" onClick={() => switchMode('forgot')} className="text-xs font-semibold text-primary hover:opacity-80">{t('auth.forgot')}</button>
                 )}
               </div>
               <div className="relative">
@@ -122,7 +124,7 @@ const LoginScreen = () => {
                 <button
                   type="button"
                   onClick={() => setShowPassword((s) => !s)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                   aria-pressed={showPassword}
                   className="absolute inset-y-0 right-0 flex items-center justify-center w-11 min-h-[44px] text-muted-foreground hover:text-foreground rounded-r-lg"
                 >
@@ -134,8 +136,8 @@ const LoginScreen = () => {
 
           {mode === 'signup' && (
             <div>
-              <label htmlFor="auth-invite" className="block text-xs font-semibold text-muted-foreground mb-1">Invite code</label>
-              <input id="auth-invite" type="text" required value={invite} onChange={(e) => setInvite(e.target.value)} placeholder="Your beta invite code" className={inputCls} />
+              <label htmlFor="auth-invite" className="block text-xs font-semibold text-muted-foreground mb-1">{t('auth.inviteCode')}</label>
+              <input id="auth-invite" type="text" required value={invite} onChange={(e) => setInvite(e.target.value)} placeholder={t('auth.invitePlaceholder')} className={inputCls} />
             </div>
           )}
 
@@ -147,13 +149,13 @@ const LoginScreen = () => {
 
         <div className="mt-5 text-center text-sm text-muted-foreground">
           {mode === 'signin' && SIGNUP_ENABLED && (
-            <button onClick={() => switchMode('signup')} className="font-semibold text-primary hover:opacity-80">Have an invite? Create an account</button>
+            <button onClick={() => switchMode('signup')} className="font-semibold text-primary hover:opacity-80">{t('auth.haveInvite')}</button>
           )}
           {mode === 'signup' && (
-            <button onClick={() => switchMode('signin')} className="font-semibold text-primary hover:opacity-80">Already have an account? Sign in</button>
+            <button onClick={() => switchMode('signin')} className="font-semibold text-primary hover:opacity-80">{t('auth.alreadyHaveAccount')}</button>
           )}
           {mode === 'forgot' && (
-            <button onClick={() => switchMode('signin')} className="font-semibold text-primary hover:opacity-80">← Back to sign in</button>
+            <button onClick={() => switchMode('signin')} className="font-semibold text-primary hover:opacity-80">{t('auth.backToSignIn')}</button>
           )}
         </div>
       </div>
