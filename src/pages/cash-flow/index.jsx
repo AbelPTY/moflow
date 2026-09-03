@@ -15,14 +15,49 @@ import useScheduledPayments from '../../hooks/useScheduledPayments';
 import useTransactions from '../../hooks/useTransactions';
 import useCreditCards from '../../hooks/useCreditCards';
 import { nextDueDate } from '../../lib/cardGuard';
+import {
+  LAST_DAY,
+  DEFAULT_SEMI_MONTHLY,
+  incomeOccurrences,
+  normalizeSemiMonthly,
+  validateSemiMonthly,
+} from '../../lib/recurringIncome';
 
 const WINDOW_OPTIONS = [7, 14, 30];
+// Semi-monthly day picker options (1..31); 29–31 clamp to the real month end.
+const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1);
 const HISTORY_WEEKS = 8;
 const HISTORY_DAYS = HISTORY_WEEKS * 7;
 
 const LS_CASH = 'cashflow_available_cash';
 const LS_INCOME_AMT = 'cashflow_income_amount';
 const LS_INCOME_DAY = 'cashflow_income_day';
+
+// V2.7: recurring-income frequency + semi-monthly (quincenal) schedule. Absence
+// of the frequency key means 'monthly' (the pre-existing behavior), so existing
+// users are never reinterpreted. Values are canonical (see recurringIncome.js);
+// display translation is handled by i18n.
+const LS_INCOME_FREQ = 'cashflow_income_frequency_v1';
+const LS_INCOME_SEMI = 'cashflow_income_semimonthly_v1';
+
+const readIncomeFrequency = () => {
+  try {
+    const raw = localStorage.getItem(LS_INCOME_FREQ);
+    return raw === 'semi_monthly' ? 'semi_monthly' : 'monthly';
+  } catch {
+    return 'monthly';
+  }
+};
+
+const readSemiMonthly = () => {
+  try {
+    const raw = localStorage.getItem(LS_INCOME_SEMI);
+    if (raw) return normalizeSemiMonthly(JSON.parse(raw));
+  } catch {
+    // fall through to defaults
+  }
+  return normalizeSemiMonthly({ ...DEFAULT_SEMI_MONTHLY });
+};
 
 // New key on purpose: V2.1 uses a different spending model, so an old
 // V2 manual/auto value should not silently override the new baseline.
@@ -371,6 +406,10 @@ const CashFlow = () => {
   const [availableCash, setAvailableCash] = useState('');
   const [incomeAmount, setIncomeAmount] = useState('');
   const [incomeDay, setIncomeDay] = useState('');
+  // V2.7 recurring-income frequency ('monthly' | 'semi_monthly') + the quincenal
+  // schedule. Canonical values only; UI labels come from i18n.
+  const [incomeFrequency, setIncomeFrequency] = useState(() => readIncomeFrequency());
+  const [semiMonthly, setSemiMonthly] = useState(() => readSemiMonthly());
   const [expectedDailySpend, setExpectedDailySpend] = useState('');
   const [whatIfSpend, setWhatIfSpend] = useState('');
   const [yappyOverrides, setYappyOverrides] = useState(() => readYappyOverrides());
@@ -811,6 +850,62 @@ const CashFlow = () => {
     localStorage.setItem(LS_INCOME_DAY, value);
   };
 
+  const persistSemiMonthly = (next) => {
+    const normalized = normalizeSemiMonthly(next);
+    setSemiMonthly(normalized);
+    try {
+      localStorage.setItem(LS_INCOME_SEMI, JSON.stringify(normalized));
+    } catch {
+      // Ignore localStorage write errors and keep the current UI state.
+    }
+  };
+
+  // Switch frequency. Moving to semi-monthly seeds both installments from the
+  // current single amount (same-amount on) so the projection stays sensible
+  // without extra input; the user can change everything afterward.
+  const setFrequency = (value) => {
+    const freq = value === 'semi_monthly' ? 'semi_monthly' : 'monthly';
+    setIncomeFrequency(freq);
+    try {
+      localStorage.setItem(LS_INCOME_FREQ, freq);
+    } catch {
+      // Ignore localStorage write errors and keep the current UI state.
+    }
+    if (freq === 'semi_monthly') {
+      const seedAmount = parseFloat(incomeAmount) || semiMonthly.first_amount || 0;
+      persistSemiMonthly({
+        first_day: semiMonthly.first_day ?? DEFAULT_SEMI_MONTHLY.first_day,
+        second_day: semiMonthly.second_day ?? DEFAULT_SEMI_MONTHLY.second_day,
+        first_amount: seedAmount,
+        second_amount: seedAmount,
+        same_amount: true,
+      });
+    }
+  };
+
+  const setSemiFirstDay = (value) => persistSemiMonthly({ ...semiMonthly, first_day: value });
+  const setSemiSecondDay = (value) => persistSemiMonthly({ ...semiMonthly, second_day: value });
+  const setSemiFirstAmount = (value) => {
+    const amt = parseFloat(value);
+    persistSemiMonthly({
+      ...semiMonthly,
+      first_amount: Number.isFinite(amt) ? amt : 0,
+      // Mirror into the second installment while same-amount is on.
+      second_amount: semiMonthly.same_amount ? (Number.isFinite(amt) ? amt : 0) : semiMonthly.second_amount,
+    });
+  };
+  const setSemiSecondAmount = (value) => {
+    const amt = parseFloat(value);
+    persistSemiMonthly({ ...semiMonthly, second_amount: Number.isFinite(amt) ? amt : 0, same_amount: false });
+  };
+  const setSemiSameAmount = (checked) => {
+    persistSemiMonthly({
+      ...semiMonthly,
+      same_amount: !!checked,
+      second_amount: checked ? semiMonthly.first_amount : semiMonthly.second_amount,
+    });
+  };
+
   const setDailySpend = (value) => {
     setExpectedDailySpend(value);
     localStorage.setItem(LS_EXPECTED_DAILY, value);
@@ -913,6 +1008,7 @@ const CashFlow = () => {
   const cash = parseFloat(availableCash) || 0;
   const incAmt = parseFloat(incomeAmount) || 0;
   const incDay = parseInt(incomeDay, 10) || 0;
+  const semiValidation = useMemo(() => validateSemiMonthly(semiMonthly), [semiMonthly]);
   const dailyLifestyleSpend = Math.max(
     0,
     parseFloat(expectedDailySpend) || 0
@@ -993,7 +1089,28 @@ const CashFlow = () => {
     // Future recurring income.
     // Strictly future (> today) so current cash does not double-count income
     // that may already have posted today.
-    if (incAmt > 0 && incDay >= 1 && incDay <= 31) {
+    if (incomeFrequency === 'semi_monthly') {
+      // V2.7 semi-monthly / quincenal: TWO calendar-month installments, each a
+      // separate dated event on its own date (never combined into one). Skipped
+      // when the schedule is invalid (duplicate/reversed dates) so the timeline
+      // never shows an ambiguous payment; the UI surfaces the validation.
+      if (semiValidation.valid) {
+        incomeOccurrences('semi_monthly', semiMonthly, start, windowEnd, { strictlyAfterStart: true })
+          .forEach((o) => {
+            if (!(o.amount > 0)) return;
+            events.push({
+              date: o.date,
+              dateStr: o.dateStr,
+              label: o.installment === 1
+                ? t('flow.semiMonthly.firstPaymentLabel')
+                : t('flow.semiMonthly.secondPaymentLabel'),
+              amount: o.amount,
+              type: 'income',
+            });
+          });
+      }
+    } else if (incAmt > 0 && incDay >= 1 && incDay <= 31) {
+      // Existing monthly recurrence — unchanged.
       for (let m = 0; m <= 2; m += 1) {
         const d = dateForDayOfMonth(
           start.getFullYear(),
@@ -1192,6 +1309,10 @@ const CashFlow = () => {
     cash,
     incAmt,
     incDay,
+    incomeFrequency,
+    semiMonthly,
+    semiValidation,
+    t,
     dailyCashSpend,
     dailyCardSpend,
     dailyLifestyleSpend,
@@ -1230,9 +1351,12 @@ const CashFlow = () => {
   // Flow -> Activity next-step prompt. "Meaningful setup" = available cash is
   // set AND there is some income or known-commitment context. Shown once, only
   // until the user dismisses it or completes an activity import.
+  const hasSemiMonthlyIncome =
+    incomeFrequency === 'semi_monthly' &&
+    (Number(semiMonthly.first_amount) > 0 || Number(semiMonthly.second_amount) > 0);
   const flowHasMeaningfulSetup =
     String(availableCash ?? '') !== '' &&
-    (String(incomeAmount ?? '') !== '' || proj.totalKnownCommitments > 0);
+    (String(incomeAmount ?? '') !== '' || hasSemiMonthlyIncome || proj.totalKnownCommitments > 0);
   const showActivityPrompt =
     !loading &&
     flowHasMeaningfulSetup &&
@@ -1308,34 +1432,121 @@ const CashFlow = () => {
           </div>
 
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
-            <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">
-              {t('flow.recurringIncome')}
-            </label>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-bold text-muted-foreground">
-                $
-              </span>
-              <input
-                type="number"
-                value={incomeAmount}
-                onChange={(e) => setIncAmt(e.target.value)}
-                placeholder="0"
-                className="w-24 text-xl font-bold text-emerald-600 outline-none bg-transparent"
-              />
-              <span className="text-sm text-muted-foreground">{t('flow.onDay')}</span>
-              <input
-                type="number"
-                min="1"
-                max="31"
-                value={incomeDay}
-                onChange={(e) => setIncDay(e.target.value)}
-                placeholder="-"
-                className="w-12 text-xl font-bold text-foreground outline-none bg-transparent border-b border-border"
-              />
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                {t('flow.recurringIncome')}
+              </label>
+              <select
+                value={incomeFrequency}
+                onChange={(e) => setFrequency(e.target.value)}
+                aria-label={t('flow.recurringFrequency')}
+                className="text-xs font-semibold text-foreground bg-transparent border border-border rounded-md px-2 py-1 outline-none"
+              >
+                <option value="monthly">{t('flow.freq.monthly')}</option>
+                <option value="semi_monthly">{t('flow.freq.semiMonthly')}</option>
+              </select>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              {t('flow.incomeAutoDetected')}
-            </p>
+
+            {incomeFrequency === 'semi_monthly' ? (
+              <div className="space-y-3">
+                {/* First installment */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-muted-foreground w-28 shrink-0">
+                    {t('flow.semiMonthly.firstPayment')}
+                  </span>
+                  <span className="text-lg font-bold text-muted-foreground">$</span>
+                  <input
+                    type="number"
+                    value={semiMonthly.first_amount || ''}
+                    onChange={(e) => setSemiFirstAmount(e.target.value)}
+                    placeholder="0"
+                    className="w-20 text-lg font-bold text-emerald-600 outline-none bg-transparent"
+                  />
+                  <span className="text-xs text-muted-foreground">{t('flow.onDay')}</span>
+                  <select
+                    value={semiMonthly.first_day === LAST_DAY ? LAST_DAY : String(semiMonthly.first_day)}
+                    onChange={(e) => setSemiFirstDay(e.target.value === LAST_DAY ? LAST_DAY : parseInt(e.target.value, 10))}
+                    className="text-sm font-bold text-foreground bg-transparent border-b border-border outline-none py-0.5"
+                  >
+                    {DAY_OPTIONS.map((d) => (
+                      <option key={d} value={String(d)}>{d}</option>
+                    ))}
+                    <option value={LAST_DAY}>{t('flow.semiMonthly.lastDay')}</option>
+                  </select>
+                </div>
+
+                {/* Second installment */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-muted-foreground w-28 shrink-0">
+                    {t('flow.semiMonthly.secondPayment')}
+                  </span>
+                  <span className="text-lg font-bold text-muted-foreground">$</span>
+                  <input
+                    type="number"
+                    value={semiMonthly.second_amount || ''}
+                    onChange={(e) => setSemiSecondAmount(e.target.value)}
+                    disabled={semiMonthly.same_amount}
+                    placeholder="0"
+                    className="w-20 text-lg font-bold text-emerald-600 outline-none bg-transparent disabled:opacity-50"
+                  />
+                  <span className="text-xs text-muted-foreground">{t('flow.onDay')}</span>
+                  <select
+                    value={semiMonthly.second_day === LAST_DAY ? LAST_DAY : String(semiMonthly.second_day)}
+                    onChange={(e) => setSemiSecondDay(e.target.value === LAST_DAY ? LAST_DAY : parseInt(e.target.value, 10))}
+                    className="text-sm font-bold text-foreground bg-transparent border-b border-border outline-none py-0.5"
+                  >
+                    {DAY_OPTIONS.map((d) => (
+                      <option key={d} value={String(d)}>{d}</option>
+                    ))}
+                    <option value={LAST_DAY}>{t('flow.semiMonthly.lastDay')}</option>
+                  </select>
+                </div>
+
+                <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={semiMonthly.same_amount}
+                    onChange={(e) => setSemiSameAmount(e.target.checked)}
+                    className="accent-emerald-600"
+                  />
+                  {t('flow.semiMonthly.sameAmount')}
+                </label>
+
+                {semiValidation.valid ? (
+                  <p className="text-[11px] text-muted-foreground">{t('flow.semiMonthly.help')}</p>
+                ) : (
+                  <p className="text-[11px] font-semibold text-red-600">
+                    {t(`flow.semiMonthly.${semiValidation.error}`)}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl font-bold text-muted-foreground">$</span>
+                  <input
+                    type="number"
+                    value={incomeAmount}
+                    onChange={(e) => setIncAmt(e.target.value)}
+                    placeholder="0"
+                    className="w-24 text-xl font-bold text-emerald-600 outline-none bg-transparent"
+                  />
+                  <span className="text-sm text-muted-foreground">{t('flow.onDay')}</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="31"
+                    value={incomeDay}
+                    onChange={(e) => setIncDay(e.target.value)}
+                    placeholder="-"
+                    className="w-12 text-xl font-bold text-foreground outline-none bg-transparent border-b border-border"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {t('flow.incomeAutoDetected')}
+                </p>
+              </>
+            )}
           </div>
 
           <div className="bg-card p-4 rounded-xl border border-border shadow-sm">
