@@ -40,6 +40,14 @@ const ALLOWED_EVENTS = new Set([
   'loan_extra_payment_tested',
   'loan_recurring_extra_tested',
   'loan_payment_added_to_flow',
+  // Transaction Intelligence (aggregate product events only — never merchant,
+  // amount, category, description, account, or user identity).
+  'transaction_auto_categorized',
+  'transaction_suggestion_accepted',
+  'transaction_suggestion_changed',
+  'transaction_rule_created',
+  'transaction_bulk_reclassified',
+  'categorization_review_opened',
 ]);
 
 // The ONLY permitted metadata is `source_screen`, restricted to this enum.

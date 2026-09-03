@@ -8,6 +8,8 @@ import useUserMerchantRules from '../hooks/useUserMerchantRules';
 import AccountSelect from './AccountSelect';
 import ImageScanTray from './ImageScanTray';
 import { useI18n } from '../i18n';
+import { classifyTransaction as classifyIntel, normalizeMerchant } from '../lib/transactionIntelligence';
+import { trackProductEvent } from '../lib/analytics';
 import { analyzeDetectedImportAccounts, prepareImportAccountAssignment, normalizeAccountName } from '../lib/accountOptions';
 import { authHeader } from '../lib/apiClient';
 
@@ -339,8 +341,51 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
   // Only fills gaps left by applyStaticRules -- never overrides a rule match.
   // Conservative on purpose (exact match only, not fuzzy) so it never
   // confidently mis-categorizes a genuinely different merchant.
+  // ONE coherent classification decision per row (Transaction Intelligence).
+  // Runs AFTER static + learned-history guesses. The final category_guess/
+  // bucket_guess shown in the preview become the persisted category, and the
+  // aligned provenance/confidence/nature/normalized_merchant are stamped on `_ti`
+  // so the save writes a single consistent decision (no mismatched provenance).
+  const finalizeClassification = (rows) => rows.map((t) => {
+    const cls = classifyIntel({
+      description: t.description || '',
+      merchant: t.merchant_display || t.merchant || '',
+      amount: Number(t.amount) || 0,
+      learned_rules: [],
+    });
+    const normalized_merchant = cls.normalizedMerchant || null;
+    let category = t.category_guess || 'Uncategorized';
+    let bucket = t.bucket_guess || 'Unsorted';
+    let source; let confidence; let needsReview;
+    const nature = cls.nature && cls.nature !== 'unknown' ? cls.nature : null;
+    if (t.matchedRule) {
+      source = t.matchedRuleSource === 'static' ? 'merchant_rule'
+        : t.matchedRuleSource === 'learned' ? 'learned_rule' : 'manual_rule';
+      confidence = source === 'merchant_rule' ? 0.9 : 1;
+      needsReview = false;
+    } else if (t.learnedFromHistory) {
+      source = 'learned_rule'; confidence = 0.9; needsReview = false;
+    } else {
+      // No rule matched -> take the engine's deterministic decision so the
+      // preview and the save agree even for cc-payment/transfer/fee/etc.
+      category = cls.category; bucket = cls.bucket;
+      source = cls.source === 'deterministic' ? 'deterministic'
+        : cls.source === 'merchant_rule' ? 'merchant_rule' : 'import';
+      confidence = cls.source === 'none' ? null : cls.confidence;
+      needsReview = cls.state !== 'auto';
+    }
+    return {
+      ...t,
+      category_guess: category,
+      bucket_guess: bucket,
+      _origCat: category,
+      _origBucket: bucket,
+      _ti: { source, confidence, nature, normalized_merchant, needsReview },
+    };
+  });
+
   const applyLearnedCategorization = async (transactions) => {
-    if (!user?.id || transactions.length === 0) return transactions;
+    if (!user?.id || transactions.length === 0) return finalizeClassification(transactions);
 
     try {
       const { data: historyRows, error } = await supabase
@@ -350,7 +395,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
         .not('category', 'is', null)
         .neq('category', 'Uncategorized');
 
-      if (error || !historyRows || historyRows.length === 0) return transactions;
+      if (error || !historyRows || historyRows.length === 0) return finalizeClassification(transactions);
 
       // Build merchant -> most common (category, bucket) pairing from history
       const frequency = new Map();
@@ -380,7 +425,7 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
         }
       }
 
-      return transactions.map((t) => {
+      return finalizeClassification(transactions.map((t) => {
         // A static rule already matched this one -- don't override it
         if (t.matchedRule) return t;
 
@@ -390,10 +435,10 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
           return { ...t, category_guess: learned.category, bucket_guess: learned.bucket, learnedFromHistory: true };
         }
         return { ...t, bucket_guess: t.bucket_guess || 'Unsorted', learnedFromHistory: false };
-      });
+      }));
     } catch (err) {
       console.error('Learned categorization failed (non-blocking):', err);
-      return transactions.map((t) => ({ ...t, bucket_guess: t.bucket_guess || 'Unsorted' }));
+      return finalizeClassification(transactions.map((t) => ({ ...t, bucket_guess: t.bucket_guess || 'Unsorted' })));
     }
   };
 
@@ -831,20 +876,52 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
       // 'multi' -> preserve genuinely distinct per-row accounts.
       const assigned = prepareImportAccountAssignment(toSave, selectedAccount);
 
-      const formattedData = assigned.map((t) => ({
-        user_id: user.id,
-        date: t.transaction_date || new Date().toISOString(),
-        description: t.description,
-        description_raw: t.description,
-        merchant: t.merchant_display,
-        amount: t.amount,
-        category: t.category_guess || 'Uncategorized',
-        budget_bucket: t.bucket_guess || 'Unsorted',
-        account_name: t.account_name,
-        source_account: t.source_account,
-        bank_reference: t.reference || null,
-        notes: `Imported via bulk upload`
-      }));
+      // Transaction Intelligence: persist ONE coherent decision per row. The
+      // category/bucket shown & editable in the preview (finalizeClassification
+      // already made these the engine decision) are saved together with aligned
+      // provenance from `_ti`. An explicit preview edit becomes 'user'
+      // provenance. Raw/identity/account fields are never touched.
+      let autoCount = 0;
+      const formattedData = assigned.map((t) => {
+        const base = {
+          user_id: user.id,
+          date: t.transaction_date || new Date().toISOString(),
+          description: t.description,
+          description_raw: t.description,
+          merchant: t.merchant_display,
+          amount: t.amount,
+          category: t.category_guess || 'Uncategorized',
+          budget_bucket: t.bucket_guess || 'Unsorted',
+          account_name: t.account_name,
+          source_account: t.source_account,
+          bank_reference: t.reference || null,
+          notes: `Imported via bulk upload`,
+        };
+        const ti = t._ti || {};
+        let meta;
+        if (t._userEditedClass === true) {
+          meta = {
+            classification_source: 'user',
+            classification_confidence: 1,
+            user_categorized: true,
+            needs_review: false,
+            transaction_nature: ti.nature || null,
+            normalized_merchant: ti.normalized_merchant || null,
+          };
+        } else {
+          meta = {
+            classification_source: ti.source || 'import',
+            classification_confidence: typeof ti.confidence === 'number' ? ti.confidence : null,
+            transaction_nature: ti.nature || null,
+            normalized_merchant: ti.normalized_merchant || null,
+            user_categorized: false,
+            needs_review: ti.needsReview === true,
+          };
+          if (!meta.needs_review) autoCount += 1;
+        }
+        return { ...base, ...meta };
+      });
+      if (autoCount > 0) trackProductEvent('transaction_auto_categorized', { source_screen: 'activity' });
 
       const { error } = await supabase.from('transactions').insert(formattedData);
       if (error) throw error;
@@ -870,7 +947,13 @@ export default function BulkUpload({ onTransactionsAdded, open = false, onClose 
 
   const removeTransaction = (index) => setParsedTransactions((prev) => prev.filter((_, i) => i !== index));
   const updateTransactionField = (index, field, value) => {
-    setParsedTransactions((prev) => prev.map((t, i) => (i === index ? { ...t, [field]: value } : t)));
+    setParsedTransactions((prev) => prev.map((t, i) => {
+      if (i !== index) return t;
+      // Editing the category/bucket in the preview is an explicit human
+      // classification — mark it so the save records 'user' provenance.
+      const editedClass = field === 'category_guess' || field === 'bucket_guess';
+      return { ...t, [field]: value, ...(editedClass ? { _userEditedClass: true } : {}) };
+    }));
   };
   const BUCKET_OPTIONS = ['NEEDS', 'WANTS', 'SAVINGS', 'INCOME', 'TRANSFERS', 'DEBT_FUNDING', 'Unsorted'];
 

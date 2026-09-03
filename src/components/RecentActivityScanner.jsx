@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { authHeader } from '../lib/apiClient';
 import { flagDuplicateActivityRows } from '../lib/dedupeTransactions';
 import { useI18n } from '../i18n';
+import { classifyForInsert, loadUserRules } from '../lib/transactionRules';
 import { trackProductEvent } from '../lib/analytics';
 
 // Reusable recent-activity screenshot importer. Reads ONE banking-app activity
@@ -242,20 +243,30 @@ const RecentActivityScanner = ({ accounts = [], onImported, onClose }) => {
     setImporting(true);
     setError('');
     try {
-      const formatted = toImport.map((r) => ({
-        user_id: user.id,
-        date: toIsoDate(r.date),
-        description: r.description,
-        description_raw: r.description,
-        merchant: r.description,
-        amount: parseFloat(r.amount),
-        category: 'Uncategorized',
-        budget_bucket: 'Unsorted',
-        account_name: effectiveAccount,
-        source_account: effectiveAccount,
-        bank_reference: r.reference || null,
-        notes: 'Imported via activity scan',
-      }));
+      // Transaction Intelligence: classify each row AFTER account assignment and
+      // BEFORE insert. Never alters date/amount/reference/account/raw text, so
+      // duplicate identity is unaffected. High-confidence rows arrive
+      // categorized; uncertain rows arrive flagged for review.
+      const userRules = await loadUserRules();
+      let autoCount = 0;
+      const formatted = toImport.map((r) => {
+        const base = {
+          user_id: user.id,
+          date: toIsoDate(r.date),
+          description: r.description,
+          description_raw: r.description,
+          merchant: r.description,
+          amount: parseFloat(r.amount),
+          account_name: effectiveAccount,
+          source_account: effectiveAccount,
+          bank_reference: r.reference || null,
+          notes: 'Imported via activity scan',
+        };
+        const { classification, metadata } = classifyForInsert(base, userRules);
+        if (classification.state === 'auto') autoCount += 1;
+        return { ...base, ...metadata };
+      });
+      if (autoCount > 0) trackProductEvent('transaction_auto_categorized', { source_screen: 'activity' });
 
       const { error: insertError } = await supabase.from('transactions').insert(formatted);
       if (insertError) throw insertError;

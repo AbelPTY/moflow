@@ -136,6 +136,15 @@ try {
   ok('I: warn EN', en('loans.warnNonAmortizing').includes('does not cover'));
   ok('I: warn ES', es('loans.warnNonAmortizing').includes('no cubre'));
   ok('I: warn differs', differs('loans.warnNonAmortizing'));
+
+  // Q. Transaction Intelligence review labels switch EN/ES.
+  ok('Q: needsReview', en('txIntel.needsReview') === 'Needs review' && es('txIntel.needsReview') === 'Requiere revisión');
+  ok('Q: rememberForFuture', es('txIntel.rememberForFuture') === 'Recordar para futuras transacciones');
+  ok('Q: applyToMatching', es('txIntel.applyToMatching') === 'Aplicar a transacciones similares');
+  ok('Q: improveCategorization', es('txIntel.improveCategorization') === 'Mejorar categorización');
+  ok('Q: autoCategorized', es('txIntel.autoCategorized') === 'Categorizado automáticamente');
+  ok('Q: reason creditCardPayment differs', differs('txIntel.reasons.creditCardPayment'));
+  ok('Q: reason recurring differs', differs('txIntel.reasons.recurring'));
 } finally {
   await vite.close();
 }

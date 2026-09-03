@@ -132,6 +132,7 @@ export function processTransactionRow(t, options = {}) {
 
     if (
       match.kind === 'manual' ||
+      match.kind === 'learned' ||
       match.kind === 'migrated' ||
       match.kind === 'fallback'
     ) {

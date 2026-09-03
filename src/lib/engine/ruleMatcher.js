@@ -111,6 +111,7 @@ function warnMalformedMigrated(rule) {
 // legacy-order range.
 export function partitionUserRules(userRules, staticCount) {
   const manual = [];
+  const learned = [];
   const migratedByOrder = new Map();
   const fallbackRules = [];
   if (Array.isArray(userRules)) {
@@ -118,6 +119,11 @@ export function partitionUserRules(userRules, staticCount) {
       if (!r) continue;
       if (r.source === 'manual') {
         manual.push(r);
+      } else if (r.source === 'learned') {
+        // Learned rules (personal corrections MoFlow remembers) rank immediately
+        // below manual rules and above migrated/static/fallback. Kept in the
+        // input's global order (priority, created_at, id) for determinism.
+        learned.push(r);
       } else if (r.source === 'migrated') {
         const order = legacyOrderOf(r, staticCount);
         if (order === null) { warnMalformedMigrated(r); continue; }
@@ -128,10 +134,10 @@ export function partitionUserRules(userRules, staticCount) {
         // (priority, created_at, id) for deterministic evaluation.
         fallbackRules.push(r);
       }
-      // any other source (e.g. 'learned') does not participate.
+      // any other/unknown source does not participate.
     }
   }
-  return { manual, migratedByOrder, fallbackRules };
+  return { manual, learned, migratedByOrder, fallbackRules };
 }
 
 // Reference-memoized partition: useTransactions passes the SAME userRules array
@@ -288,10 +294,16 @@ export function findFallbackMatch(fields, fallbackRules) {
 
 export function classifyTransaction(fields, staticRules, userRules) {
   const staticCount = Array.isArray(staticRules) ? staticRules.length : 0;
-  const { manual, migratedByOrder, fallbackRules } = partitionMemo(userRules, staticCount);
+  const { manual, learned, migratedByOrder, fallbackRules } = partitionMemo(userRules, staticCount);
   if (manual.length) {
     const m = findMatchingUserRule(fields, manual);
     if (m) return { rule: m, kind: 'manual' };
+  }
+  // Learned rules: below manual, above migrated/static/fallback. With no learned
+  // rows present this is a no-op, so pre-existing behavior is byte-for-byte kept.
+  if (learned && learned.length) {
+    const l = findMatchingUserRule(fields, learned);
+    if (l) return { rule: l, kind: 'learned' };
   }
   const legacy = findByLegacyOrder(fields, staticRules, migratedByOrder);
   if (legacy) return legacy;

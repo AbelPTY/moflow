@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { authHeader } from '../lib/apiClient';
 import AccountSelect from './AccountSelect';
+import { classifyTransaction, buildAutoWriteMetadata } from '../lib/transactionIntelligence';
 import { useI18n } from '../i18n';
 
 // Controlled component: the parent (QuickActionsFab) owns open/close state so
@@ -93,17 +94,35 @@ export default function AddTransaction({ onTransactionAdded, open = false, onClo
     e.preventDefault();
     setLoading(true);
 
+    const amount = -parseFloat(formData.amount);
+    const account = formData.account_name || 'Cash/Manual';
+    // If the user explicitly chose a category, that is a human classification.
+    // If left at the default 'Uncategorized', let the engine try to classify.
+    const userChoseCategory = !!formData.category && formData.category.trim() && formData.category !== 'Uncategorized';
+    let classificationMeta = {};
+    try {
+      if (userChoseCategory) {
+        // User explicitly set a category — mark human classification (no bucket
+        // field exists on this form, so bucket is left to the app default).
+        classificationMeta = { classification_source: 'user', classification_confidence: 1, user_categorized: true, needs_review: false };
+      } else {
+        const cls = classifyTransaction({ description: formData.merchant, merchant: formData.merchant, amount });
+        classificationMeta = buildAutoWriteMetadata(cls);
+      }
+    } catch { classificationMeta = {}; }
+
     const { error } = await supabase
       .from('transactions')
       .insert([
         {
           date: formData.date,
           merchant: formData.merchant,
-          amount: -parseFloat(formData.amount),
+          amount,
           category: formData.category,
-          account_name: formData.account_name || 'Cash/Manual',
-          source_account: formData.account_name || 'Cash/Manual',
-          is_transfer: false
+          account_name: account,
+          source_account: account,
+          is_transfer: false,
+          ...classificationMeta,
         }
       ]);
 

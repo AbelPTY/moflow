@@ -28,6 +28,8 @@ try {
     'onboarding_flow_bridge_clicked', 'onboarding_activity_prompt_clicked',
     'loan_section_opened', 'loan_added', 'loan_edited', 'loan_simulator_opened',
     'loan_extra_payment_tested', 'loan_recurring_extra_tested', 'loan_payment_added_to_flow',
+    'transaction_auto_categorized', 'transaction_suggestion_accepted', 'transaction_suggestion_changed',
+    'transaction_rule_created', 'transaction_bulk_reclassified', 'categorization_review_opened',
   ];
   ok('allowlist size matches taxonomy', ALLOWED_EVENTS.size === EXPECTED_EVENTS.length);
   ok('every approved event is allowlisted', EXPECTED_EVENTS.every((e) => ALLOWED_EVENTS.has(e)));
@@ -48,6 +50,13 @@ try {
   // 2. Unknown event is rejected.
   ok('unknown event -> null', sanitizeEvent('definitely_not_allowed') === null);
   ok('non-string event -> null', sanitizeEvent(42) === null);
+
+  // T. Transaction-intelligence events carry NO sensitive payload — a merchant/
+  // amount/category/description supplied as metadata is stripped to just the name.
+  const ti = sanitizeEvent('transaction_auto_categorized', { merchant: 'Super 99', amount: -20, category: 'Groceries', source_screen: 'activity' });
+  ok('T: TI event allowlisted', ti && ti.event_name === 'transaction_auto_categorized');
+  ok('T: TI event drops merchant/amount/category', ti && ti.merchant === undefined && ti.amount === undefined && ti.category === undefined);
+  ok('T: TI event keeps only name + allowed source_screen', ti && Object.keys(ti).every((k) => k === 'event_name' || k === 'source_screen'));
 
   // 3. Allowed source_screen survives.
   const b = sanitizeEvent('flow_opened', { source_screen: 'flow' });

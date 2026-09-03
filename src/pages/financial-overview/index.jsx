@@ -9,6 +9,8 @@ import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import useTransactions from '../../hooks/useTransactions';
 import Icon from '../../components/AppIcon';
 import { useI18n } from '../../i18n';
+import TransactionReview from '../../components/TransactionReview';
+import { buildUserEditMetadata, normalizeMerchant } from '../../lib/transactionIntelligence';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import RecentActivityScanner from '../../components/RecentActivityScanner';
@@ -188,6 +190,7 @@ const FinancialOverview = () => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [editOriginal, setEditOriginal] = useState(null);
   const [bulkCategory, setBulkCategory] = useState('');
   const [bulkBucket, setBulkBucket] = useState('');
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
@@ -286,8 +289,8 @@ const FinancialOverview = () => {
     setSelectedAccounts([]); setTimeRange('all'); setCurrentPage(1);
   };
 
- const startEditing = (t) => { setEditingId(t.id); setEditForm({ ...t }); };
-const cancelEditing = () => { setEditingId(null); setEditForm({}); };
+ const startEditing = (t) => { setEditingId(t.id); setEditForm({ ...t }); setEditOriginal({ merchant: t.merchant, description: t.description, category: t.category, budgetBucket: t.budgetBucket }); };
+const cancelEditing = () => { setEditingId(null); setEditForm({}); setEditOriginal(null); };
 const handleEditChange = (field, value) => { setEditForm(prev => ({ ...prev, [field]: value })); };
 
 const handleDeleteTransaction = async (tx) => {
@@ -306,16 +309,39 @@ const handleDeleteTransaction = async (tx) => {
 };
 
   const saveEditing = async () => {
-    if (updateTransaction) {
-        const updates = { ...editForm };
-        if (['TRANSFERS', 'CC_PAYMENT', 'ADJUSTMENT'].includes(updates.budgetBucket)) {
-            updates.is_transfer = true;
-        } else if (['INCOME', 'NEEDS', 'WANTS', 'SAVINGS'].includes(updates.budgetBucket)) {
-            updates.is_transfer = false;
+    if (updateTransaction && editOriginal) {
+        // Build a CLEAN updates object with only REAL columns and only the fields
+        // the user actually changed (the processed row carries camelCase display
+        // fields that are not columns). This also fixes provenance: an explicit
+        // category/bucket change marks the row as a human classification.
+        const orig = editOriginal;
+        const updates = {};
+        if (editForm.merchant !== orig.merchant) updates.merchant = editForm.merchant;
+        if (editForm.description !== orig.description) updates.description = editForm.description;
+        const categoryChanged = editForm.category !== orig.category;
+        const bucketChanged = editForm.budgetBucket !== orig.budgetBucket;
+        if (categoryChanged) updates.category = editForm.category;
+        if (bucketChanged) {
+            updates.budget_bucket = editForm.budgetBucket;
+            if (['TRANSFERS', 'CC_PAYMENT', 'ADJUSTMENT'].includes(editForm.budgetBucket)) updates.is_transfer = true;
+            else if (['INCOME', 'NEEDS', 'WANTS', 'SAVINGS'].includes(editForm.budgetBucket)) updates.is_transfer = false;
         }
-        await updateTransaction(editingId, updates);
+        // Only an explicit category/bucket change is a classification edit; editing
+        // merchant/description alone must NOT mark user_categorized.
+        if (categoryChanged || bucketChanged) {
+            Object.assign(updates, buildUserEditMetadata({
+                category: editForm.category,
+                bucket: editForm.budgetBucket,
+            }));
+            updates.normalized_merchant = normalizeMerchant(editForm.merchant || editForm.description);
+            trackProductEvent('transaction_suggestion_changed', { source_screen: 'activity' });
+        }
+        if (Object.keys(updates).length > 0) {
+            await updateTransaction(editingId, updates);
+            if (refetch) await refetch();
+        }
     }
-    setEditingId(null); setEditForm({});
+    setEditingId(null); setEditForm({}); setEditOriginal(null);
   };
 
   const handleBulkUpdate = async () => {
@@ -541,6 +567,7 @@ const handleDeleteTransaction = async (tx) => {
             </div>
           </div>
           <div className="flex gap-2 items-center flex-wrap">
+             <TransactionReview onChanged={refetch} />
              <Button variant="default" className="bg-primary hover:bg-primary/90 text-white h-10" iconName="ScanLine" iconPosition="left" onClick={() => setShowActivityScanner((s) => !s)}>
                {t('activity.scanRecentActivity')}
              </Button>

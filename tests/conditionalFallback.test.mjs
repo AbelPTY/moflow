@@ -52,9 +52,16 @@ try {
   // 9 migrated wins over fallback
   const migrated = { id: 'mig1', source: 'migrated', match_type: 'contains', match_field: 'description', pattern: 'TEST FAMILY CONTACT', priority: 1001, assign: { category: 'MigCat', subcategory: null, budgetBucket: 'NEEDS', is_transfer: false } };
   ok('9 migrated wins', (() => { const m = classifyTransaction(F('TEST FAMILY CONTACT', 10), staticRules, [migrated, fb()]); return m.kind === 'migrated' && cat(m) === 'MigCat'; })());
-  // 10 learned non-participating
+  // 10 learned rules NOW participate (Transaction Intelligence V1): they rank
+  // below manual and above migrated/static/fallback. With only a learned rule
+  // present and no earlier-tier match, the learned rule wins.
   const learned = { id: 'l1', source: 'learned', match_type: 'contains', match_field: 'description', pattern: 'TEST FAMILY CONTACT', priority: 100, assign: { category: 'LearnedCat', subcategory: null, budgetBucket: 'NEEDS', is_transfer: false } };
-  ok('10 learned ignored', classifyTransaction(F('TEST FAMILY CONTACT', 10), staticRules, [learned]) === null);
+  ok('10 learned participates', (() => { const m = classifyTransaction(F('TEST FAMILY CONTACT', 10), staticRules, [learned]); return m && m.kind === 'learned' && cat(m) === 'LearnedCat'; })());
+  // 10b manual still beats learned.
+  const manual10 = { id: 'm10', source: 'manual', match_type: 'contains', match_field: 'description', pattern: 'TEST FAMILY CONTACT', priority: 1, assign: { category: 'ManualCat', subcategory: null, budgetBucket: 'NEEDS', is_transfer: false } };
+  ok('10b manual beats learned', (() => { const m = classifyTransaction(F('TEST FAMILY CONTACT', 10), staticRules, [manual10, learned]); return m.kind === 'manual' && cat(m) === 'ManualCat'; })());
+  // 10c learned beats migrated/static.
+  ok('10c learned beats migrated', (() => { const m = classifyTransaction(F('TEST FAMILY CONTACT', 10), sr2, [learned, migrated]); return m.kind === 'learned' && cat(m) === 'LearnedCat'; })());
   // 11 malformed branches -> ignored, no crash
   let threw = false; let r11;
   try { r11 = classifyTransaction(F('TEST FAMILY CONTACT', 10), staticRules, [{ id: 'bad', source: 'fallback', match_type: 'contains', match_field: 'description', pattern: 'TEST FAMILY CONTACT', priority: 100, branches: 'not-an-array' }]); } catch { threw = true; }
