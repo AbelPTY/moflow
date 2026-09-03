@@ -97,8 +97,13 @@
     },
     {
       "id": "fixed_needs_utilities",
-      "matchAny": ["NATURGY", "ENSA", "TERPEL", "PUMA", "DELTA", "GASOLINERA", "TRANSPORTE", "BUS ESCOLAR"],
+      "matchAny": ["NATURGY", "TRANSPORTE", "BUS ESCOLAR"],
       "assign": { "category": "Household/Utilities", "budgetBucket": "NEEDS", "is_transfer": false }
+    },
+    {
+      "id": "fuel_stations",
+      "matchAny": ["TERPEL", "TEXACO", "GASOLINERA"],
+      "assign": { "category": "Fuel", "budgetBucket": "NEEDS", "is_transfer": false }
     },
     {
       "id": "income_salary",

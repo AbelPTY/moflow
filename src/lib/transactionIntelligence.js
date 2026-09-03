@@ -140,13 +140,94 @@ const MERCHANT_ALIASES = [
   [/\bAMAZON\b/i, 'Amazon'],
   [/\bSTARBUCKS\b/i, 'Starbucks'],
   [/\bMC\s*DONALD'?S\b/i, "McDonald's"],
+  // --- Panama market merchants (reusable market knowledge, no personal data) ---
+  // Boundary-aware so bank-statement variants converge WITHOUT capturing
+  // look-alike descriptions (see FALSE-POSITIVE guards + negative tests).
+  [/\bARROCHA\b/i, 'Arrocha'],                                   // FCIA/FARMACIA ARROCHA, ARROCHA #12, ARROCHA PHARMACY
+  [/\b(?:SUPERMERCADOS?\s+REY|EL\s+REY|REY\s+PANAMA|REY\s*#\s*\d+|REY\s+\d{1,2}\s+DE\b)/i, 'Rey'], // NOT "REYES ..."
+  [/\bCABLE\s*(?:&|Y|AND)?\s*WIRELESS\b|\bC\s*&\s*W\b/i, 'Cable & Wireless'],
+  [/\bMAS\s*MOVIL\b|\bMASMOVIL\b|\+\s*MOVIL\b/i, '+Móvil'],       // NOT "AUTOMOVIL"
+  [/\bTIGO\b/i, 'Tigo'],
+  [/\bENSA\b/i, 'ENSA'],                                         // NOT "PRENSA"
+  [/\bNATURGY\b/i, 'Naturgy'],
+  [/\bIDAAN\b/i, 'IDAAN'],
+  [/\bTERPEL\b/i, 'Terpel'],
+  [/\bTEXACO\b/i, 'Texaco'],
+  [/\bDELTA\b(?!\s*(?:AIR|AIRLINE|AIRLINES))/i, 'Delta'],        // fuel, NOT "DELTA AIRLINES"
+  [/\bPUMA\b(?!\s*(?:STORE|SHOP|SPORT|SPORTS|\.?COM))/i, 'Puma'],// fuel, NOT the apparel store
+  [/\bASSA\b/i, 'ASSA'],                                         // NOT "ASSAULT" (no word boundary)
+  [/\bMAPFRE\b/i, 'Mapfre'],
+  [/\bPANAPASS\b/i, 'Panapass'],
+  [/\bCORREDOR\s+(?:SUR|NORTE)\b/i, 'Corredor'],                 // toll roads, NOT "CORREDOR DE SEGUROS"
+  [/\bMETRO\s*BUS\b/i, 'Metrobus'],
+  [/\bPAPA\s*JOHN'?S?\b/i, "Papa John's"],
+  [/\bDOMINO'?S?\b/i, "Domino's"],
+  [/\bKFC\b/i, 'KFC'],
 ];
+
+// Exact normalized-merchant -> app-native category/bucket (a "known merchant"
+// tier consulted AFTER user/learned rules and deterministic nature). Keys are
+// normalizeMerchant() output, lowercased. Values reuse EXISTING stored category
+// strings + UPPERCASE bucket codes (all present in i18n catDisplay), so nothing
+// invents taxonomy and both display languages resolve. Because matching is exact
+// on the boundary-aware normalized name, short/ambiguous tokens (Rey, Delta,
+// Assa) cannot collide with unrelated descriptions.
+const PANAMA_MERCHANT_CATEGORY = {
+  arrocha: { category: 'Medical/Health', bucket: 'NEEDS' },
+  'super 99': { category: 'Groceries', bucket: 'NEEDS' },
+  'riba smith': { category: 'Groceries', bucket: 'NEEDS' },
+  rey: { category: 'Groceries', bucket: 'NEEDS' },
+  pricesmart: { category: 'Groceries', bucket: 'NEEDS' },
+  'el machetazo': { category: 'Groceries', bucket: 'NEEDS' },
+  ensa: { category: 'Household/Utilities', bucket: 'NEEDS' },
+  naturgy: { category: 'Household/Utilities', bucket: 'NEEDS' },
+  idaan: { category: 'Household/Utilities', bucket: 'NEEDS' },
+  'cable & wireless': { category: 'Household/Utilities', bucket: 'NEEDS' },
+  tigo: { category: 'Household/Utilities', bucket: 'NEEDS' },
+  '+móvil': { category: 'Household/Utilities', bucket: 'NEEDS' },
+  terpel: { category: 'Fuel', bucket: 'NEEDS' },
+  delta: { category: 'Fuel', bucket: 'NEEDS' },
+  texaco: { category: 'Fuel', bucket: 'NEEDS' },
+  puma: { category: 'Fuel', bucket: 'NEEDS' },
+  assa: { category: 'Insurance', bucket: 'NEEDS' },
+  mapfre: { category: 'Insurance', bucket: 'NEEDS' },
+  panapass: { category: 'Transportation', bucket: 'NEEDS' },
+  corredor: { category: 'Transportation', bucket: 'NEEDS' },
+  metrobus: { category: 'Transportation', bucket: 'NEEDS' },
+  uber: { category: 'Transportation', bucket: 'NEEDS' },
+  'uber eats': { category: 'Dining Out', bucket: 'WANTS' },
+  "mcdonald's": { category: 'Dining Out', bucket: 'WANTS' },
+  starbucks: { category: 'Dining Out', bucket: 'WANTS' },
+  "papa john's": { category: 'Dining Out', bucket: 'WANTS' },
+  "domino's": { category: 'Dining Out', bucket: 'WANTS' },
+  kfc: { category: 'Dining Out', bucket: 'WANTS' },
+};
+
+// Look up the Panama merchant map by a normalized-merchant string (exact,
+// case-insensitive). Returns { category, bucket } or null. Pure.
+export function panamaMerchantCategory(normalizedMerchant) {
+  const key = String(normalizedMerchant || '').toLowerCase().trim();
+  return key && Object.prototype.hasOwnProperty.call(PANAMA_MERCHANT_CATEGORY, key)
+    ? PANAMA_MERCHANT_CATEGORY[key]
+    : null;
+}
 
 // Bank noise / boilerplate that is safe to strip from the front of a merchant.
 const BANK_NOISE_PREFIXES = [
   'COMPRA ', 'PURCHASE ', 'POS ', 'PAGO A ', 'PAGO ', 'DEBITO ', 'CREDITO ',
   'ACH ', 'TRANSFERENCIA A ', 'TRANSFERENCIA DE ', 'YAPPY A ', 'YAPPY DE ',
 ];
+
+// Repeatable leading card / POS / authorization boilerplate (word-bounded so it
+// never eats a merchant that merely starts with these letters, e.g. "MCDONALDS"
+// vs the "MC" card brand). Applied in a loop so stacks like "COMPRA VISA POS …"
+// fully unwind. ACH/YAPPY/TRANSFERENCIA are intentionally NOT here — nature is
+// inferred from the ORIGINAL description, but keeping them out avoids destroying
+// transfer context on the merchant string too.
+const LEAD_NOISE = /^(?:COMPRA|PURCHASE|POS|PAGO|DEBITO|CREDITO|VISA|MASTERCARD|MAESTRO|MC|TARJETA|TRANSACCION|REF|AUT|AUTORIZACION)\b[\s:.\-]*/;
+// Trailing location boilerplate common to PA statements ("… PANAMA", "… PTY").
+// "PA" alone is deliberately excluded (too collision-prone with real names).
+const TRAIL_GEO = /[\s,]+(?:PANAMA|PTY)\.?\s*$/;
 
 // Title-case a token run while keeping short connectors lowercase.
 const titleCase = (s) =>
@@ -170,12 +251,18 @@ export function normalizeMerchant(input) {
   for (const p of BANK_NOISE_PREFIXES) {
     if (work.startsWith(p)) { work = work.slice(p.length); break; }
   }
+  // Unwind any remaining stacked leading card/POS/auth tokens.
+  for (let i = 0; i < 6; i++) { const nw = work.replace(LEAD_NOISE, ''); if (nw === work) break; work = nw; }
 
   // Strip a trailing transaction / store number like "#045", "No. 12", "*1234".
   work = work.replace(/\s*[#*]\s*\d{2,}\s*$/g, '');
   work = work.replace(/\s+NO\.?\s*\d{2,}\s*$/g, '');
   // Strip a trailing card mask like "**** 3355".
   work = work.replace(/\s*\*{2,}\s*\d{2,}\s*$/g, '');
+  // Strip trailing location boilerplate ("… PANAMA" / "… PTY"), possibly stacked.
+  for (let i = 0; i < 3; i++) { const nw = work.replace(TRAIL_GEO, ''); if (nw === work) break; work = nw; }
+  // Strip a trailing bare terminal/store number ("… 1234") left after cleanup.
+  work = work.replace(/\s+\d{3,}\s*$/g, '');
   // Collapse repeated whitespace.
   work = work.replace(/\s+/g, ' ').trim();
 
@@ -403,7 +490,19 @@ export function classifyTransaction(input = {}) {
     return result(normalizedMerchant, nat.nature, category, def.bucket, Math.round(conf * 100) / 100, 'deterministic', reasons, recurring);
   }
 
-  // 4. Known merchant / static rule.
+  // 4. Known merchant — Panama market map (exact normalized) first, then the
+  // generic static/JSON rule. Both are the "known merchant" tier, so a user or
+  // learned rule (step 2) and a deterministic nature (step 3) already win. The
+  // reason stays the generic 'merchantRule' key (no internal rule ids exposed).
+  const pana = panamaMerchantCategory(normalizedMerchant);
+  if (pana) {
+    reasons.push('merchantRule');
+    if (recurring) reasons.push('recurring');
+    const conf = scoreClassification({ source: 'merchant_rule', recurring });
+    return result(normalizedMerchant, natureFromCategory(pana.category, amount), pana.category, pana.bucket, conf, 'merchant_rule', reasons, recurring, { ruleKind: 'panama' });
+  }
+
+  // 4b. Known merchant / static rule.
   if (ruled) {
     reasons.push('merchantRule');
     if (recurring) reasons.push('recurring');
