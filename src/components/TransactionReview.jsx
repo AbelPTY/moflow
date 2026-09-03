@@ -6,6 +6,7 @@ import {
   fetchReviewCount, fetchNeedsReview, saveUserClassification,
   rememberLearnedRule, applyToSimilar, fetchImproveCandidates, applyBackfill,
   loadUserRules, previewBackfill,
+  selectAiReviewCandidates, aiClassifyReviewRows, aiMetadataFor,
 } from '../lib/transactionRules';
 import { normalizeMerchant, classificationState, THRESHOLD, reasonKeyForClassification } from '../lib/transactionIntelligence';
 
@@ -115,7 +116,37 @@ export default function TransactionReview({ onChanged }) {
     try {
       const [cands, ur] = await Promise.all([fetchImproveCandidates(), loadUserRules()]);
       setRules(ur);
-      setImprove(previewBackfill(cands, ur));
+      const preview = previewBackfill(cands, ur);
+
+      // V1.2 AI fallback: for rows the deterministic engine STILL leaves in
+      // review, ask the AI as a last resort — during PREVIEW only (no writes
+      // happen until the user confirms). Successful AI rows become SUGGESTED
+      // (source='ai', needs_review=true), never auto. Any AI failure leaves them
+      // exactly as review candidates, so Improve still works fully offline.
+      if (preview.plan.review.length > 0) {
+        const candidates = selectAiReviewCandidates(cands, ur);
+        const byNorm = new Map(candidates.map((c) => [String(c.id), c.normalizedMerchant]));
+        const { byId, aiCount } = await aiClassifyReviewRows(candidates);
+        if (aiCount > 0) {
+          const stillReview = [];
+          for (const entry of preview.plan.review) {
+            const cls = byId[String(entry.id)];
+            if (cls) {
+              preview.plan.suggested.push({
+                id: entry.id,
+                metadata: aiMetadataFor(cls, byNorm.get(String(entry.id))),
+              });
+            } else {
+              stillReview.push(entry);
+            }
+          }
+          preview.plan.review = stillReview;
+          preview.counts.suggested = preview.plan.suggested.length;
+          preview.counts.review = preview.plan.review.length;
+        }
+      }
+
+      setImprove(preview);
     } finally { setBusy(false); }
   };
 

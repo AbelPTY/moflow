@@ -18,6 +18,8 @@ import {
   buildUserEditMetadata,
   learnedRuleFromCorrection,
   normalizeMerchant,
+  buildAiClassifyPayload,
+  sanitizeAiBatch,
   UNCATEGORIZED,
   UNSORTED,
 } from './transactionIntelligence.js';
@@ -97,6 +99,85 @@ export function previewBackfill(rows = [], learnedRules = []) {
     },
     plan,
   };
+}
+
+// ---------------------------------------------------------------------------
+// AI fallback (V1.2) — LAST resort for rows the deterministic engine leaves in
+// 'review'. Pure selection + a thin, fail-safe network call. AI NEVER overrides
+// a protected / user / rule / deterministic / merchant classification: only rows
+// the engine itself returns as state='review' (and are not protected) are ever
+// eligible, and an AI result is always source='ai', capped ≤0.80, needs_review.
+// ---------------------------------------------------------------------------
+
+// Pure: from raw rows, run the deterministic engine and return ONLY the rows it
+// leaves unresolved (state='review') and unprotected — the AI-eligible tail.
+// Each candidate carries just what the payload builder needs.
+export function selectAiReviewCandidates(rows = [], learnedRules = []) {
+  const out = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (isProtectedRow(row)) continue;
+    const { classification } = classifyForInsert(row, learnedRules);
+    if (classification.state !== 'review') continue;
+    out.push({
+      id: row.id,
+      normalizedMerchant: classification.normalizedMerchant
+        || normalizeMerchant(row.merchant || row.description || ''),
+      description: row.description || row.description_raw || row.merchant || '',
+      amount: Number(row.amount) || 0,
+    });
+  }
+  return out;
+}
+
+// Pure: build the review-row metadata for an AI classification (source='ai',
+// confidence ≤0.80, needs_review=true, user_categorized=false) — reuses the
+// engine's canonical writer so it can never drift from the AUTO/SUGGESTED policy.
+export function aiMetadataFor(classification, normalizedMerchant) {
+  return buildAutoWriteMetadata({ ...classification, normalizedMerchant });
+}
+
+// Network (thin, injectable): send the AI-eligible candidates to the shared
+// Gemini endpoint (scanReceipt mode:'classify') and return a per-id map of the
+// sanitized AI classification (or null). ALWAYS resolves — any failure (offline,
+// non-2xx, bad JSON, rejected taxonomy) yields nulls so the caller falls back to
+// review. Requests are deduped + capped inside buildAiClassifyPayload.
+export async function aiClassifyReviewRows(candidates = [], { fetchImpl, endpoint = '/api/scanReceipt' } = {}) {
+  const byId = {};
+  for (const r of Array.isArray(candidates) ? candidates : []) {
+    if (r && r.id != null) byId[String(r.id)] = null;
+  }
+  const { payload, dedupe, keyForId } = buildAiClassifyPayload(candidates);
+  if (payload.transactions.length === 0) return { byId, aiCount: 0, ok: true };
+
+  try {
+    const doFetch = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
+    if (!doFetch) return { byId, aiCount: 0, ok: false };
+    let headers = { 'Content-Type': 'application/json' };
+    if (!fetchImpl) {
+      // Reuse the app's authenticated fetch header (lazy so pure tests don't
+      // pull in the Supabase client).
+      try {
+        const { authHeader } = await import('./apiClient.js');
+        headers = { ...headers, ...(await authHeader()) };
+      } catch {
+        // No auth context -> let the server reject; treated as a safe failure.
+      }
+    }
+    const res = await doFetch(endpoint, { method: 'POST', headers, body: JSON.stringify(payload) });
+    if (!res || !res.ok) return { byId, aiCount: 0, ok: false };
+    const json = await res.json();
+    const results = sanitizeAiBatch(json, new Set(payload.transactions.map((t) => t.id)));
+    let aiCount = 0;
+    for (const { id, classification } of results) {
+      const ids = dedupe[keyForId[id]] || [id];
+      for (const rid of ids) {
+        if (byId[rid] === null) { byId[rid] = classification; aiCount += 1; }
+      }
+    }
+    return { byId, aiCount, ok: true };
+  } catch {
+    return { byId, aiCount: 0, ok: false };
+  }
 }
 
 // ---------------------------------------------------------------------------

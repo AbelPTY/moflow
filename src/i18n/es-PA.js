@@ -561,6 +561,7 @@ export default {
       salary: 'Parece ingreso/planilla',
       savings: 'Parece un aporte a ahorro',
       recurring: 'Parece un cargo recurrente',
+      aiSuggested: 'Sugerencia asistida por IA',
       noMatch: 'Aún no pudimos clasificar esta',
     },
   },

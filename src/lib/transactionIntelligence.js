@@ -598,6 +598,7 @@ export function reasonKeyForClassification(classification_source, transaction_na
     case 'manual_rule': return 'userRule';
     case 'learned_rule': return 'learnedRule';
     case 'merchant_rule': return 'merchantRule';
+    case 'ai': return 'aiSuggested';
     case 'legacy':
     case 'manual': return 'legacyProtected';
     case 'deterministic':
@@ -671,6 +672,86 @@ export function sanitizeAiClassification(obj) {
     source: 'ai',
     state: classificationState(Math.min(confidence, CONFIDENCE.AI)),
   };
+}
+
+// ---------------------------------------------------------------------------
+// AI fallback (V1.2) — privacy-safe request building + batch validation. PURE.
+// The AI helper is a LAST fallback for rows the deterministic engine leaves in
+// 'review'. Nothing here performs I/O; the network call lives in the data layer.
+// ---------------------------------------------------------------------------
+
+// Hard cap on rows per Gemini classify request (cost + latency guardrail).
+export const AI_MAX_BATCH = 50;
+
+// Clean a description for the AI payload: strip reference/identity noise while
+// keeping merchant words + useful category context. NEVER mutates the stored raw
+// description (callers pass a copy). Truncated to bound token cost.
+export function cleanDescriptionForAi(input, maxLen = 80) {
+  let s = String(input == null ? '' : input);
+  s = s.replace(/\*{2,}\s*\d+/g, ' ');                 // card mask "**** 1234"
+  s = s.replace(/x{4,}\s*\d+/gi, ' ');                 // "xxxx1234"
+  s = s.replace(/\b(?:REF|AUT|AUTH|AUTORIZACION|AUTORIZACIÓN|TRACE|BATCH|SEQ|FOLIO|CONF|TERM|TERMINAL)\b[:#.\s-]*[A-Z0-9-]*\d[A-Z0-9-]*/gi, ' '); // ref/auth/terminal tokens
+  s = s.replace(/[#*]\s*\d{2,}/g, ' ');                // "#045", "*1234"
+  s = s.replace(/\b\d{4,}\b/g, ' ');                   // long digit runs (refs, terminals)
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  if (s.length > maxLen) s = s.slice(0, maxLen).trim();
+  return s;
+}
+
+// Amount sign token — the ONLY amount signal allowed into the AI payload. The
+// numeric amount is never sent (V1.2 privacy rule).
+export function amountSignOf(amount) {
+  return (Number(amount) || 0) < 0 ? 'negative' : 'positive';
+}
+
+// Build the privacy-safe batch classify payload from unresolved rows. Emits ONLY
+// { id, normalizedMerchant, description(cleaned), amountSign } per row — never an
+// amount value, account name/number, bank reference, user id, or any other row.
+// Rows are DEDUPED by (merchant|cleaned description|sign) so identical merchants
+// aren't asked repeatedly, and the batch is capped at AI_MAX_BATCH. Returns the
+// payload plus maps to expand one result back onto every row sharing its key.
+export function buildAiClassifyPayload(items = [], { maxBatch = AI_MAX_BATCH, maxDescLen = 80 } = {}) {
+  const seen = new Set();
+  const dedupe = {};   // key -> [ids]
+  const keyForId = {}; // id  -> key
+  const transactions = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    if (!it || it.id == null) continue;
+    const id = String(it.id);
+    const normalizedMerchant = String(it.normalizedMerchant || '').trim()
+      || normalizeMerchant(it.merchant || it.description || '');
+    const description = cleanDescriptionForAi(it.description || it.merchant || '', maxDescLen);
+    const amountSign = amountSignOf(it.amount);
+    const key = `${normalizedMerchant.toLowerCase()}|${description.toLowerCase()}|${amountSign}`;
+    keyForId[id] = key;
+    (dedupe[key] || (dedupe[key] = [])).push(id);
+    if (seen.has(key)) continue;                  // one query per unique key
+    if (transactions.length >= maxBatch) continue; // hard cap
+    seen.add(key);
+    transactions.push({ id, normalizedMerchant, description, amountSign });
+  }
+  return { payload: { mode: 'classify', transactions }, dedupe, keyForId };
+}
+
+// Validate + sanitize a batch AI response against the taxonomy and the set of
+// ids actually submitted (defense in depth — mirrors the server). Returns
+// [{ id, classification }] with confidence capped to CONFIDENCE.AI. Malformed
+// entries, unknown ids, duplicate ids, and invented taxonomy are dropped.
+export function sanitizeAiBatch(response, submittedIds = []) {
+  const allowed = submittedIds instanceof Set ? submittedIds : new Set((submittedIds || []).map(String));
+  const list = Array.isArray(response?.classifications) ? response.classifications : [];
+  const out = [];
+  const usedIds = new Set();
+  for (const raw of list) {
+    if (!raw || raw.id == null) continue;
+    const id = String(raw.id);
+    if (!allowed.has(id) || usedIds.has(id)) continue;
+    const classification = sanitizeAiClassification(raw); // rejects invented taxonomy, caps 0.8
+    if (!classification) continue;
+    usedIds.add(id);
+    out.push({ id, classification });
+  }
+  return out;
 }
 
 export default classifyTransaction;

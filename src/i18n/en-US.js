@@ -571,6 +571,7 @@ export default {
       salary: 'Looks like income/payroll',
       savings: 'Looks like a savings contribution',
       recurring: 'Looks like a recurring charge',
+      aiSuggested: 'AI-assisted suggestion',
       noMatch: "We couldn't classify this one yet",
     },
   },

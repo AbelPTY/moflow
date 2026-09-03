@@ -3,6 +3,7 @@ import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from '../server/rateLimit.js';
 import { safeError } from '../server/safeError.js';
 import { buildImageParts } from '../server/imageParts.js';
+import { handleClassify } from '../server/classifyTransactions.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -12,12 +13,21 @@ export default async function handler(req, res) {
   const user = await requireUser(req, res);
   if (!user) return;
 
+  const { mode } = req.body || {};
+
+  // V1.2 Transaction Intelligence AI fallback: a TEXT-only classify job that
+  // reuses this Gemini-capable function (so /api stays at 12) but its OWN cheaper
+  // cost bucket (gemini_text) and no image path. Existing (non-classify) calls
+  // are untouched below and remain byte-for-byte compatible.
+  if (mode === 'classify') {
+    if (!(await applyRateLimit({ req, res, user, scope: 'gemini_text' }))) return;
+    return handleClassify(req, res);
+  }
+
   // Durable per-user + per-IP rate limit BEFORE any image decode / Gemini work.
   if (!(await applyRateLimit({ req, res, user, scope: 'gemini_vision' }))) return;
 
   try {
-    const { mode } = req.body || {};
-
     // Accept a single `image` (legacy) or `images: []` (multi-screenshot).
     const imageParts = buildImageParts(req.body);
     if (imageParts.length === 0) {
