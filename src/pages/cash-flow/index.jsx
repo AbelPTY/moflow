@@ -22,6 +22,7 @@ import {
   normalizeSemiMonthly,
   validateSemiMonthly,
 } from '../../lib/recurringIncome';
+import { readAvailableCash, writeAvailableCash } from '../../lib/availableCash';
 
 const WINDOW_OPTIONS = [7, 14, 30];
 // Semi-monthly day picker options (1..31); 29–31 clamp to the real month end.
@@ -29,7 +30,6 @@ const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1);
 const HISTORY_WEEKS = 8;
 const HISTORY_DAYS = HISTORY_WEEKS * 7;
 
-const LS_CASH = 'cashflow_available_cash';
 const LS_INCOME_AMT = 'cashflow_income_amount';
 const LS_INCOME_DAY = 'cashflow_income_day';
 
@@ -403,7 +403,10 @@ const CashFlow = () => {
   }, [initialLA.resetMode]);
   // One-time dated extra-income events (persisted to localStorage).
   const [extraIncome, setExtraIncome] = useState(() => readExtraIncome());
-  const [availableCash, setAvailableCash] = useState('');
+  // Restored SYNCHRONOUSLY from persistence on first render (lazy init) so the
+  // confirmed starting balance survives refresh/reopen/relaunch and can never be
+  // lost to effect ordering. '' means NO value set; '0' is a confirmed zero.
+  const [availableCash, setAvailableCash] = useState(() => readAvailableCash());
   const [incomeAmount, setIncomeAmount] = useState('');
   const [incomeDay, setIncomeDay] = useState('');
   // V2.7 recurring-income frequency ('monthly' | 'semi_monthly') + the quincenal
@@ -800,9 +803,9 @@ const CashFlow = () => {
   // Load persisted assumptions. The new expected-spend key lets V2.1 seed
   // from the new median-week model instead of inheriting V2's raw average.
   useEffect(() => {
-    const cashStored = localStorage.getItem(LS_CASH);
-    if (cashStored !== null) setAvailableCash(cashStored);
-
+    // Available cash is restored via lazy state init (see useState above), NOT
+    // here — keeping it out of this transaction-derived effect prevents the
+    // confirmed balance from being reset/raced on remount or data refresh.
     const incomeStored = localStorage.getItem(LS_INCOME_AMT);
     setIncomeAmount(
       incomeStored !== null
@@ -835,9 +838,12 @@ const CashFlow = () => {
     spendingModel.dailyTotal,
   ]);
 
+  // The ONE explicit-confirmation entry point (manual entry + "Use $X as
+  // available cash"). Persists exactly what the user confirmed; a blank value
+  // clears back to unset (never stored as 0). Guarded against storage failure.
   const setCash = (value) => {
     setAvailableCash(value);
-    localStorage.setItem(LS_CASH, value);
+    writeAvailableCash(value);
   };
 
   const setIncAmt = (value) => {
