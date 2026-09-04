@@ -248,6 +248,77 @@ export async function applyBackfill(client, plan) {
   return count;
 }
 
+// Scope & Safety V1: the classification columns a scope preview/apply needs.
+const SCOPE_ROW_COLUMNS = 'id, merchant, description, description_raw, amount, category, budget_bucket, classification_source, user_categorized, needs_review';
+
+// Fetch canonical rows by id (chunked). Used for SELECTED / filtered-view scopes
+// so protection + unresolved decisions run on authoritative DB fields, not the
+// display shape. RLS scopes every read to the owner.
+export async function fetchRowsByIds(client, ids = []) {
+  const c = client || (await defaultClientAsync());
+  const list = (Array.isArray(ids) ? ids : []).map(String).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < list.length; i += 200) {
+    const chunk = list.slice(i, i + 200);
+    const { data, error } = await c.from('transactions').select(SCOPE_ROW_COLUMNS).in('id', chunk);
+    if (error) throw error;
+    if (data) out.push(...data);
+  }
+  return out;
+}
+
+// Fetch unresolved candidates (category/bucket default/blank) for the default
+// "all unresolved" scope. Bounded; RLS-scoped.
+export async function fetchUnresolvedRows(client, limit = 1000) {
+  const c = client || (await defaultClientAsync());
+  const { data, error } = await c
+    .from('transactions')
+    .select(SCOPE_ROW_COLUMNS)
+    .or('category.is.null,category.eq.Uncategorized,budget_bucket.is.null,budget_bucket.eq.Unsorted')
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+// Fetch rows eligible for the ADVANCED "all eligible" scope: everything that is
+// NOT a protected user classification (may include automatic classifications for
+// reprocessing). Never returns user_categorized rows. Bounded; RLS-scoped.
+export async function fetchEligibleForReprocess(client, limit = 1000) {
+  const c = client || (await defaultClientAsync());
+  const { data, error } = await c
+    .from('transactions')
+    .select(SCOPE_ROW_COLUMNS)
+    .not('user_categorized', 'is', true)
+    .or('classification_source.is.null,classification_source.neq.user')
+    .limit(limit);
+  if (error) throw error;
+  // Final protection filter client-side (covers resolved legacy-manual rows).
+  return (data || []).filter((r) => !isProtectedRow(r));
+}
+
+// Apply a flat categorization plan ([{ id, metadata }]). Groups rows sharing the
+// exact same metadata into one update (fewer requests). Returns rows written.
+export async function applyCategorizationPlan(client, entries = []) {
+  const c = client || (await defaultClientAsync());
+  const groups = new Map(); // metadataJSON -> ids[]
+  for (const e of Array.isArray(entries) ? entries : []) {
+    if (!e || e.id == null || !e.metadata) continue;
+    const key = JSON.stringify(e.metadata);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e.id);
+  }
+  let written = 0;
+  for (const [key, ids] of groups.entries()) {
+    const metadata = JSON.parse(key);
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const { error } = await c.from('transactions').update(metadata).in('id', chunk);
+      if (!error) written += chunk.length;
+    }
+  }
+  return written;
+}
+
 // Persist an explicit user edit (Accept / Change): marks the row user-owned and
 // resolved. Only classification columns are written.
 export async function saveUserClassification(client, id, { category, bucket, nature } = {}) {

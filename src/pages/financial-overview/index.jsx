@@ -15,9 +15,7 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import RecentActivityScanner from '../../components/RecentActivityScanner';
 
-import { supabase } from '../../lib/supabase'; // <-- Important: Verify this path matches your setup!
-import rulesData from '../../rules/merchant_rules.json';
-import { classifyTransaction } from '../../lib/engine/ruleMatcher';
+import CategorizationScopeDialog from '../../components/CategorizationScopeDialog';
 import useUserMerchantRules from '../../hooks/useUserMerchantRules';
 import useOnboarding from '../../hooks/useOnboarding';
 import useAccounts from '../../hooks/useAccounts';
@@ -194,6 +192,8 @@ const FinancialOverview = () => {
   const [bulkCategory, setBulkCategory] = useState('');
   const [bulkBucket, setBulkBucket] = useState('');
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+  // Scope & Safety V1: which scoped categorization dialog is open ({ mode }).
+  const [scopeDialog, setScopeDialog] = useState(null);
 
   const filters = useMemo(() => ({ dateRange: 'all' }), []);
   const transactionOptions = useMemo(() => ({ filters }), [filters]);
@@ -275,6 +275,13 @@ const FinancialOverview = () => {
     const total = processedData.reduce((sum, t) => sum + t.amount, 0);
     return { count: processedData.length, amount: total };
   }, [processedData]);
+
+  // Scope & Safety V1: are any filters active, and the ids of the filtered view.
+  const filtersActive =
+    searchTerm !== '' || minAmount !== '' || maxAmount !== '' ||
+    categoryFilter !== 'All' || bucketFilter !== 'All' || typeFilter !== 'All' ||
+    selectedAccounts.length > 0 || timeRange !== 'all';
+  const filteredIds = useMemo(() => processedData.map((t) => t.id), [processedData]);
 
   const totalPages = Math.ceil(processedData.length / ITEMS_PER_PAGE);
   const currentData = processedData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
@@ -395,148 +402,13 @@ const handleDeleteTransaction = async (tx) => {
     }
   };
 
-  // --- THE MEGA-DICTIONARY MAGIC SWEEP ---
-  const handleMagicSweep = async () => {
-    if(!window.confirm(t('activity.magicSweepConfirm'))) return;
-    setIsBulkUpdating(true);
+  // Magic Sweep + Categorize from Rules now open the scope dialog instead of
+  // writing immediately (Activity Categorization Scope & Safety V1). The dialog
+  // enforces the default unresolved-only scope, a no-write preview, protection,
+  // and explicit confirmation before anything is persisted.
+  const handleMagicSweep = () => setScopeDialog({ mode: 'magic' });
 
-    // The massive dictionary containing all your custom categories
-    const autoBucketMap = {
-      // Income
-      'Income': 'INCOME',
-      'Interest Income': 'INCOME',
-      'Salary': 'INCOME',
-      'Reimbursements': 'INCOME',
-
-      // Needs
-      'Health': 'NEEDS',
-      'Maintenance': 'NEEDS',
-      'Groceries': 'NEEDS',
-      'Transportation': 'NEEDS',
-      'Transport': 'NEEDS',
-      'Utilities': 'NEEDS',
-      'Financial': 'NEEDS',
-      'Financial Fees': 'NEEDS',
-      'Supermercados': 'NEEDS',
-      'Health Insurance': 'NEEDS',
-      'Insurance': 'NEEDS',
-      'Life Insurance': 'NEEDS',
-      'Medical/Health': 'NEEDS',
-      'Household Help': 'NEEDS',
-      'Education': 'NEEDS',
-
-      // Wants
-      'Miscellaneous': 'WANTS',
-      'Dining Out': 'WANTS',
-      'Food': 'WANTS',
-      'Shopping': 'WANTS',
-      'Tiendas y almacenes': 'WANTS',
-      'Comida y Bebida': 'WANTS',
-      'Sports': 'WANTS',
-      'Subscriptions': 'WANTS',
-      'Membership Fees': 'WANTS', // legacy alias for Subscriptions
-      'Office/Social Events': 'WANTS',
-      'Work Expenses': 'WANTS',
-
-      // Debt
-      'Debt Payment': 'DEBT_FUNDING',
-      'Debt Repayment': 'DEBT_FUNDING',
-
-      // Transfers / Savings
-      'Transfer': 'TRANSFERS',
-      'Payment': 'TRANSFERS',
-      'Cash': 'TRANSFERS',
-      'Cash Swap': 'TRANSFERS',
-      'Credit Card Payment': 'TRANSFERS',
-      'Savings Contribution': 'TRANSFERS',
-      'Savings/Investment': 'SAVINGS'
-    };
-
-    try {
-      // Send bulk updates directly to Supabase
-      for (const [cat, bucket] of Object.entries(autoBucketMap)) {
-         await supabase
-           .from('transactions')
-           .update({ budget_bucket: bucket })
-           .eq('category', cat)
-           .in('budget_bucket', ['Unsorted', 'Uncategorized', '', null]);
-      }
-     alert(t('activity.magicSweepDone'));
-      window.location.reload(); // Hard refresh to pull pristine data
-    } catch (err) {
-      console.error(err);
-      alert(t('activity.magicSweepError'));
-    }
-    setIsBulkUpdating(false);
-  };
-
-  // Applies your actual merchant_rules.json to every transaction that's still
-  // Uncategorized in the DATABASE (even if it currently *displays* correctly
-  // thanks to the same rules being re-applied live on this page -- that live
-  // repaint never gets saved, so this is what actually fixes the underlying
-  // data). Also feeds the bulk-upload "learn from history" feature, since it
-  // only learns from what's really stored, not what's just displayed.
-  const handleRuleBasedCategorize = async () => {
-    if (!window.confirm(t('activity.ruleCategorizeConfirm'))) return;
-    setIsBulkUpdating(true);
-
-    try {
-      const { data: uncategorized, error } = await supabase
-        .from('transactions')
-        .select('id, description, description_raw, merchant')
-        .or('category.is.null,category.eq.Uncategorized');
-
-      if (error) throw error;
-
-      if (!uncategorized || uncategorized.length === 0) {
-        alert(t('activity.noUncategorized'));
-        setIsBulkUpdating(false);
-        return;
-      }
-
-      // Group matched transaction IDs by their target (category, bucket) pair,
-      // so we can update many rows in one request per group instead of one
-      // request per row (much faster for thousands of transactions).
-      const updateGroups = new Map();
-      let matchedCount = 0;
-
-      for (const row of uncategorized) {
-        const description = String(row.description_raw || row.description || row.merchant || '').toUpperCase();
-        // MANUAL -> LEGACY(STATIC + MIGRATED). Empty userRules today -> pure static.
-        const match = classifyTransaction({ merchant: row.merchant, description }, rulesData?.rules, userRules);
-        if (match) {
-          const assign = match.rule.assign;
-          const key = `${assign.category}|||${assign.budgetBucket}|||${assign.is_transfer}`;
-          if (!updateGroups.has(key)) updateGroups.set(key, []);
-          updateGroups.get(key).push(row.id);
-          matchedCount++;
-        }
-      }
-
-      for (const [key, ids] of updateGroups.entries()) {
-        const [category, budget_bucket, is_transfer_str] = key.split('|||');
-        const is_transfer = is_transfer_str === 'true';
-
-        // Supabase .in() can choke on very large ID lists -- chunk into batches of 200
-        for (let i = 0; i < ids.length; i += 200) {
-          const chunk = ids.slice(i, i + 200);
-          const { error: updateError } = await supabase
-            .from('transactions')
-            .update({ category, budget_bucket, is_transfer })
-            .in('id', chunk);
-          if (updateError) throw updateError;
-        }
-      }
-
-      const unmatchedCount = uncategorized.length - matchedCount;
-      alert(t('activity.ruleDone', { matched: matchedCount, total: uncategorized.length, unmatched: unmatchedCount }));
-      window.location.reload();
-    } catch (err) {
-      console.error(err);
-      alert(t('activity.ruleError', { msg: err?.message || t('activity.unknownError') }));
-      setIsBulkUpdating(false);
-    }
-  };
+  const handleRuleBasedCategorize = () => setScopeDialog({ mode: 'rules' });
 
   const handleExportCSV = () => {
     if (!processedData.length) return;
@@ -724,6 +596,16 @@ const handleDeleteTransaction = async (tx) => {
           </div>
         </div>
       </div>
+
+      <CategorizationScopeDialog
+        open={!!scopeDialog}
+        mode={scopeDialog?.mode || 'rules'}
+        selectedIds={selectedIds}
+        filteredIds={filteredIds}
+        filtersActive={filtersActive}
+        onClose={() => setScopeDialog(null)}
+        onApplied={() => { if (refetch) refetch(); }}
+      />
     </div>
   );
 };
