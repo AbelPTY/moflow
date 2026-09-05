@@ -296,6 +296,30 @@ export async function fetchEligibleForReprocess(client, limit = 1000) {
   return (data || []).filter((r) => !isProtectedRow(r));
 }
 
+// Calibration V1: fetch a BOUNDED, read-only sample for quality analysis. Never
+// fetches the full history; RLS scopes every read to the owner. scope:
+//   'latest'     -> newest `size` rows
+//   'unresolved' -> unresolved rows (bounded)
+//   'selected'   -> the given ids (bounded)
+export async function fetchCalibrationSample(client, { size = 250, scope = 'latest', selectedIds } = {}) {
+  const c = client || (await defaultClientAsync());
+  const cap = Math.max(1, Math.min(Number(size) || 250, 500));
+  if (scope === 'selected') {
+    const rows = await fetchRowsByIds(c, Array.from(selectedIds || []));
+    return rows.slice(0, cap);
+  }
+  if (scope === 'unresolved') {
+    return fetchUnresolvedRows(c, cap);
+  }
+  const { data, error } = await c
+    .from('transactions')
+    .select(`${SCOPE_ROW_COLUMNS}, date`)
+    .order('date', { ascending: false })
+    .limit(cap);
+  if (error) throw error;
+  return data || [];
+}
+
 // Apply a flat categorization plan ([{ id, metadata }]). Groups rows sharing the
 // exact same metadata into one update (fewer requests). Returns rows written.
 export async function applyCategorizationPlan(client, entries = []) {

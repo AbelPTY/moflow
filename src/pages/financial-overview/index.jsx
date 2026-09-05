@@ -16,6 +16,7 @@ import Input from '../../components/ui/Input';
 import RecentActivityScanner from '../../components/RecentActivityScanner';
 
 import CategorizationScopeDialog from '../../components/CategorizationScopeDialog';
+import CalibrationPanel from '../../components/CalibrationPanel';
 import useUserMerchantRules from '../../hooks/useUserMerchantRules';
 import useOnboarding from '../../hooks/useOnboarding';
 import useAccounts from '../../hooks/useAccounts';
@@ -194,6 +195,11 @@ const FinancialOverview = () => {
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
   // Scope & Safety V1: which scoped categorization dialog is open ({ mode }).
   const [scopeDialog, setScopeDialog] = useState(null);
+  // Calibration V1: hidden diagnostic surface, enabled only via ?calibrate=1.
+  const calibrateEnabled = useMemo(() => {
+    try { return new URLSearchParams(window.location.search).get('calibrate') === '1'; } catch { return false; }
+  }, []);
+  const [showCalibration, setShowCalibration] = useState(false);
 
   const filters = useMemo(() => ({ dateRange: 'all' }), []);
   const transactionOptions = useMemo(() => ({ filters }), [filters]);
@@ -550,6 +556,9 @@ const handleDeleteTransaction = async (tx) => {
                  <Button variant="default" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-10 px-3 shadow-md" iconName="Sparkles" onClick={handleRuleBasedCategorize} disabled={isBulkUpdating}>
                     {isBulkUpdating ? t('activity.working') : t('activity.categorizeFromRules')}
                  </Button>
+                 {calibrateEnabled && (
+                   <Button variant="outline" size="icon" iconName="Activity" onClick={() => setShowCalibration(true)} title={t('calibration.title')} />
+                 )}
                </div>
              </div>
           </div>
@@ -606,6 +615,14 @@ const handleDeleteTransaction = async (tx) => {
         onClose={() => setScopeDialog(null)}
         onApplied={() => { if (refetch) refetch(); }}
       />
+
+      {calibrateEnabled && (
+        <CalibrationPanel
+          open={showCalibration}
+          onClose={() => setShowCalibration(false)}
+          selectedIds={selectedIds}
+        />
+      )}
     </div>
   );
 };
