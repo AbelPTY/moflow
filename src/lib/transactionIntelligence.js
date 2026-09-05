@@ -163,6 +163,39 @@ const MERCHANT_ALIASES = [
   [/\bPAPA\s*JOHN'?S?\b/i, "Papa John's"],
   [/\bDOMINO'?S?\b/i, "Domino's"],
   [/\bKFC\b/i, 'KFC'],
+  // --- Panama Recovery Pass V1: additional high-confidence merchants ---
+  // Groceries
+  [/\bSUPER\s*KOSHER\b/i, 'Super Kosher'],
+  // Pharmacy / health (specific multi-word identities; NEVER bare CENTRO/MEDICAL/HOSPITAL)
+  [/\b(?:FARMACIA\s+)?EL\s+JAVILLO\b/i, 'Farmacia El Javillo'],
+  [/\bFARMACIA\s+SABA\b/i, 'Farmacia Saba'],
+  [/\bFARMA\s*VALUE\b/i, 'Farma Value'],
+  [/\bPANAMA\s+EYE\s+CENTER\b/i, 'Panama Eye Center'],
+  [/\bCENTRO\s+DE\s+PODOLOG\w*/i, 'Centro de Podología'],
+  [/\bCENTRO\s+DE\s+ESTUDIOS\s+DIAGN[OÓ]STIC\w*/i, 'Centro de Estudios Diagnósticos'],
+  [/\bINSTITUTO\s+DE\s+NEUMOLOG\w*/i, 'Instituto de Neumología y Alergias'],
+  [/\bCENTRO\s+HEMATO\b/i, 'Centro Hemato Oncológico'],
+  // Dining
+  [/\bATHANASIOU\b/i, 'Athanasiou'],
+  [/\bLUNG\s*FUNG\b/i, 'Lung Fung'],
+  [/\bDON\s+LEE\b/i, 'Don Lee'],
+  [/\bPAUL\s+BAKERY\b/i, 'Paul Bakery'],
+  [/\bCOFFEE\s+BEAN\b/i, 'Coffee Bean'],
+  [/\bDURAN\s+COFFEE\b/i, 'Duran Coffee'],
+  [/\bTGI\b(?:\s*FRIDAY'?S?)?/i, 'TGI Fridays'],
+  [/\bBUCO\s+POLLO\b/i, 'Buco Pollo'],
+  // Retail (brand identities only; "Steven's" and "Felix" intentionally omitted
+  // — too collision-prone with common personal names in P2P memos)
+  [/\bFACTORY\s+FASHION\b/i, 'Factory Fashion'],
+  [/\bH\s*&\s*M\b/i, 'H&M'],
+  // Fuel
+  [/\bESTACI[OÓ]N\s+OL[IÍ]MPIC\w*/i, 'Estación Olímpica'],
+  // Education (specific school, NOT bare "colegio")
+  [/\bCOL(?:EGIO)?\.?\s+LAS\s+ESCLAVAS\b/i, 'Colegio Las Esclavas'],
+  // Insurance
+  [/\bWORLD\s*WIDE\s+MEDICAL\b/i, 'WorldWide Medical Assurance'],
+  // Subscriptions / digital
+  [/\bGOOGLE\s*\*?\s*GOOGLE\s+ONE\b|\bGOOGLE\s+ONE\b/i, 'Google One'],
 ];
 
 // Exact normalized-merchant -> app-native category/bucket (a "known merchant"
@@ -201,7 +234,54 @@ const PANAMA_MERCHANT_CATEGORY = {
   "papa john's": { category: 'Dining Out', bucket: 'WANTS' },
   "domino's": { category: 'Dining Out', bucket: 'WANTS' },
   kfc: { category: 'Dining Out', bucket: 'WANTS' },
+  // --- Panama Recovery Pass V1 additions ---
+  'super kosher': { category: 'Groceries', bucket: 'NEEDS' },
+  'farmacia el javillo': { category: 'Medical/Health', bucket: 'NEEDS' },
+  'farmacia saba': { category: 'Medical/Health', bucket: 'NEEDS' },
+  'farma value': { category: 'Medical/Health', bucket: 'NEEDS' },
+  'panama eye center': { category: 'Medical/Health', bucket: 'NEEDS' },
+  'centro de podología': { category: 'Medical/Health', bucket: 'NEEDS' },
+  'centro de estudios diagnósticos': { category: 'Medical/Health', bucket: 'NEEDS' },
+  'instituto de neumología y alergias': { category: 'Medical/Health', bucket: 'NEEDS' },
+  'centro hemato oncológico': { category: 'Medical/Health', bucket: 'NEEDS' },
+  athanasiou: { category: 'Dining Out', bucket: 'WANTS' },
+  'lung fung': { category: 'Dining Out', bucket: 'WANTS' },
+  'don lee': { category: 'Dining Out', bucket: 'WANTS' },
+  'paul bakery': { category: 'Dining Out', bucket: 'WANTS' },
+  'coffee bean': { category: 'Dining Out', bucket: 'WANTS' },
+  'duran coffee': { category: 'Dining Out', bucket: 'WANTS' },
+  'tgi fridays': { category: 'Dining Out', bucket: 'WANTS' },
+  'buco pollo': { category: 'Dining Out', bucket: 'WANTS' },
+  'factory fashion': { category: 'Shopping', bucket: 'WANTS' },
+  'h&m': { category: 'Shopping', bucket: 'WANTS' },
+  'estación olímpica': { category: 'Fuel', bucket: 'NEEDS' },
+  'colegio las esclavas': { category: 'Education', bucket: 'NEEDS' },
+  'worldwide medical assurance': { category: 'Insurance', bucket: 'NEEDS' },
+  netflix: { category: 'Subscriptions', bucket: 'WANTS' },
+  'google one': { category: 'Subscriptions', bucket: 'WANTS' },
 };
+
+// High-confidence CONTEXTUAL MEMO interpretation (e.g. Yappy/ACH memos). Runs
+// AFTER deterministic nature and BEFORE merchant rules. CONSERVATIVE: only a
+// strong keyword PAIR classifies, and it NEVER keys off a person/recipient name.
+// Returns { category, bucket } or null. Pure.
+export function contextualMemoCategory(text) {
+  const s = String(text || '').toUpperCase();
+  if (!s) return null;
+  // Utility payment: an explicit "servicio" + a utility kind.
+  if (/\bSERVICIO/.test(s) && /(AGUA|ELECTRIC|\bLUZ\b|CABLE|TELEFON|INTERNET|\bGAS\b)/.test(s)) {
+    return { category: 'Household/Utilities', bucket: 'NEEDS' };
+  }
+  // Home repair / maintenance.
+  if (/\bREPARAC/.test(s) && /(CASA|HOGAR|ELECTRIC|PLOMER|FONTANER|APARTAMENTO|\bAPTO\b)/.test(s)) {
+    return { category: 'Household/Utilities', bucket: 'NEEDS' };
+  }
+  // Dining: explicit restaurant wording (strong, single keyword).
+  if (/\b(RESTAURANT|RESTAURANTE|CAFETERIA|CAFETERÍA)\b/.test(s)) {
+    return { category: 'Dining Out', bucket: 'WANTS' };
+  }
+  return null;
+}
 
 // Look up the Panama merchant map by a normalized-merchant string (exact,
 // case-insensitive). Returns { category, bucket } or null. Pure.
@@ -240,6 +320,12 @@ const titleCase = (s) =>
 export function normalizeMerchant(input) {
   let s = String(input == null ? '' : input).trim();
   if (!s) return '';
+
+  // Payment-processor wrapper: expose the underlying merchant so it can match a
+  // real alias/rule, e.g. "PAYPAL *GENUINEPART" -> "GENUINEPART". Bare "PAYPAL"
+  // (no "*merchant") is left intact so a processor is never a merchant category.
+  const wrapped = s.match(/^(?:PAYPAL|PP|SQ|SQUARE)\s*\*\s*(.+)$/i);
+  if (wrapped && wrapped[1].trim()) s = wrapped[1].trim();
 
   // Alias match wins immediately (case-insensitive), before any destruction.
   for (const [re, canonical] of MERCHANT_ALIASES) {
@@ -284,24 +370,38 @@ export function inferTransactionNature({ description = '', merchant = '', amount
   const hay = `${d} ${m}`;
   const amt = Number(amount) || 0;
 
-  // Credit-card payments (explicit patterns; sign-independent).
-  if (has(hay, ['PAGO VISA', 'PAYMENT - THANK YOU', 'PAYMENT THANK YOU', 'TARJETA VISA PAYMENT', 'PAGO TARJETA', 'PAGO A TARJETA', 'CREDIT CARD PAYMENT'])) {
+  // Credit-card payments (explicit patterns; sign-independent). A CC-account
+  // credit saying "GRACIAS POR SU PAGO" is NOT income; a bank-account debit
+  // saying "PAGO VISA" is NOT new spending — both are the same CC payment.
+  if (has(hay, ['PAGO VISA', 'PAGO MASTERCARD', 'PAGO MASTER', 'PAGO MC', 'PAYMENT - THANK YOU', 'PAYMENT THANK YOU', 'GRACIAS POR SU PAGO', 'TARJETA VISA PAYMENT', 'PAGO TARJETA', 'PAGO A TARJETA', 'CREDIT CARD PAYMENT'])) {
     return { nature: 'credit_card_payment', confidence: CONFIDENCE.DETERMINISTIC, reasonCode: 'creditCardPayment' };
   }
   // Loan payments.
   if (has(hay, ['PAGO PRESTAMO', 'PAGO DE PRESTAMO', 'LOAN PAYMENT', 'PRESTAMO PERSONAL', 'ABONO PRESTAMO', 'MORTGAGE'])) {
     return { nature: 'loan_payment', confidence: CONFIDENCE.DETERMINISTIC, reasonCode: 'loanPayment' };
   }
-  // Transfers (keyword-driven; pairing is confirmed elsewhere).
-  if (has(hay, ['TRANSFERENCIA A ', 'TRANSFERENCIA DE ', 'ACH XPRESS A ', 'ACH XPRESS DE ', 'YAPPY A ', 'YAPPY DE ', 'TRANSFER TO ', 'TRANSFER FROM ', 'INTERNAL TRANSFER'])) {
+  // Explicit transfers (keyword-driven; sign does not change that it is a
+  // transfer). Pairing is confirmed elsewhere.
+  if (has(hay, ['TRANSFERENCIA A ', 'TRANSFERENCIA DE ', 'ENTRE CUENTAS', 'TRASPASO', 'ACH XPRESS A ', 'ACH XPRESS DE ', 'YAPPY A ', 'YAPPY DE ', 'TRANSFER TO ', 'TRANSFER FROM ', 'INTERNAL TRANSFER'])) {
     return { nature: 'transfer', confidence: 0.9, reasonCode: 'transferKeyword' };
   }
-  // Bank fees.
-  if (has(hay, ['COMISION', 'CARGO POR MANEJO', 'MAINTENANCE FEE', 'SERVICE CHARGE', 'ATM FEE', 'CARGO ADMINISTRATIVO', 'OVERDRAFT'])) {
+  // Cash withdrawal / ATM — closest existing nature is transfer (no dedicated
+  // cash-withdrawal nature); this prevents double-counting cash as spending.
+  if (has(hay, ['RETIRO ATM', 'RETIRO CAJERO', 'RETIRO EN CAJERO', 'CAJERO AUTOMATICO', 'CAJERO AUTOMÁTICO', 'ATM WITHDRAWAL', 'CASH WITHDRAWAL', 'RETIRO EN EFECTIVO'])) {
+    return { nature: 'transfer', confidence: 0.9, reasonCode: 'transferKeyword' };
+  }
+  // Bank fees / financial charges. NOTE: this runs BEFORE the refund block so
+  // "RECARGO POR DEVOLUCION" (a fee for a returned item) is a fee, not a refund.
+  if (has(hay, ['COMISION', 'COMISIÓN', 'CARGO POR MANEJO', 'MAINTENANCE FEE', 'SERVICE CHARGE', 'ATM FEE', 'CARGO ADMINISTRATIVO', 'CARGO FINANCIERO', 'RECARGO POR DEVOLUCION', 'RECARGO POR DEVOLUCIÓN', 'SEGURO FRAUDE', 'SEGURO DE DESGRAVAMEN', 'ITBMS CARGO POR SEGURO', 'MEMBRESIA', 'MEMBRESÍA', 'ANUALIDAD', 'OVERDRAFT'])) {
     return { nature: 'fee', confidence: CONFIDENCE.DETERMINISTIC, reasonCode: 'bankFee' };
   }
+  // Reversals / refunds. A positive reversal must NOT become ordinary income —
+  // NATURE_DEFAULTS.refund maps it to Refund/Reimbursement, not Income.
+  if (has(hay, ['DEV ACH', 'DEVOLUCION', 'DEVOLUCIÓN', 'REVERSA', 'REVERSO', 'RECHAZO ACH', 'REEMBOLSO'])) {
+    return { nature: 'refund', confidence: CONFIDENCE.DETERMINISTIC, reasonCode: 'refundPair' };
+  }
   // Interest credit.
-  if (has(hay, ['INTERES GANADO', 'INTEREST EARNED', 'INTERES CUENTA', 'DIVIDENDO', 'INTEREST PAID', 'INTERES PAGADO']) && amt >= 0) {
+  if (has(hay, ['INTERES GANADO', 'INTEREST EARNED', 'INTERES CUENTA', 'INTERESES CUENTA', 'DIVIDENDO', 'INTEREST PAID', 'INTERES PAGADO']) && amt >= 0) {
     return { nature: 'interest', confidence: CONFIDENCE.DETERMINISTIC, reasonCode: 'interest' };
   }
   // Salary / payroll (positive only).
@@ -488,6 +588,18 @@ export function classifyTransaction(input = {}) {
     reasons.push(nat.reasonCode);
     const conf = scoreClassification({ source: 'deterministic', recurring: false }) * (nat.confidence / CONFIDENCE.DETERMINISTIC);
     return result(normalizedMerchant, nat.nature, category, def.bucket, Math.round(conf * 100) / 100, 'deterministic', reasons, recurring);
+  }
+
+  // 3.5 High-confidence contextual memo (utility / household / dining phrases).
+  // Runs after deterministic nature and before merchant rules, so an explicit
+  // memo like "Servicio electrico ENSA" classifies even when the merchant name
+  // is a person. Conservative keyword pairs only; never a recipient name.
+  const ctx = contextualMemoCategory(`${description} ${merchant}`);
+  if (ctx) {
+    reasons.push('merchantRule');
+    if (recurring) reasons.push('recurring');
+    const conf = scoreClassification({ source: 'merchant_rule', recurring });
+    return result(normalizedMerchant, natureFromCategory(ctx.category, amount), ctx.category, ctx.bucket, conf, 'merchant_rule', reasons, recurring, { ruleKind: 'context' });
   }
 
   // 4. Known merchant — Panama market map (exact normalized) first, then the

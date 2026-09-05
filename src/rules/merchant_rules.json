@@ -62,7 +62,7 @@
     },
     {
       "id": "medical_health",
-      "matchAny": ["PEDIATRAS", "CLINICA", "HOSPITAL"],
+      "matchAny": ["PEDIATRAS"],
       "assign": { "category": "Medical/Health", "budgetBucket": "NEEDS", "is_transfer": false }
     },
     {
