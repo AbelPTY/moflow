@@ -29,12 +29,18 @@ CREATE TABLE IF NOT EXISTS public.transaction_receipts (
 
 ALTER TABLE public.transaction_receipts ENABLE ROW LEVEL SECURITY;
 
+-- Policies are DROP-then-CREATE so the migration is safe to re-run (CREATE
+-- POLICY has no IF NOT EXISTS). Semantics are unchanged: owner-scoped RLS.
+DROP POLICY IF EXISTS "receipts_owner_select" ON public.transaction_receipts;
 CREATE POLICY "receipts_owner_select" ON public.transaction_receipts
   FOR SELECT TO authenticated USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "receipts_owner_insert" ON public.transaction_receipts;
 CREATE POLICY "receipts_owner_insert" ON public.transaction_receipts
   FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "receipts_owner_update" ON public.transaction_receipts;
 CREATE POLICY "receipts_owner_update" ON public.transaction_receipts
   FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "receipts_owner_delete" ON public.transaction_receipts;
 CREATE POLICY "receipts_owner_delete" ON public.transaction_receipts
   FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
