@@ -38,6 +38,9 @@ export default async function handler(req, res) {
     // within the Vercel Hobby function limit. Absent/receipt => unchanged
     // legacy behavior. 'activity' => recent-activity transaction-list extraction.
     const isActivity = mode === 'activity' || mode === 'recent_activity';
+    // Receipt & Invoice Intelligence V1: a single structured receipt/invoice
+    // object (the client sanitizes it via sanitizeReceiptImageResult).
+    const isReceiptV1 = mode === 'receipt_v1';
 
     // Initialize Gemini with your secure Vercel key
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -133,7 +136,32 @@ export default async function handler(req, res) {
       - If the SAME transaction type (e.g. "SEG.AUTO") appears more than once with DIFFERENT account numbers, keep them as separate line items -- do not merge them, since they're genuinely different policies/accounts.
     `;
 
-    const prompt = isActivity ? activityPrompt : receiptPrompt;
+    // Structured single receipt/invoice extraction (Receipt Intelligence V1).
+    const receiptV1Prompt = `
+      You are extracting ONE receipt or invoice from the image(s). Return ONLY a
+      single strict JSON object (no markdown, no explanation), with this shape:
+      {
+        "documentType": "receipt" | "invoice",
+        "merchantDisplayName": "storefront/brand name as shown",
+        "legalEntityName": "legal company name if shown, else ''",
+        "taxId": "RUC / tax id if shown, else ''",
+        "branchName": "", "branchCode": "",
+        "transactionDate": "YYYY-MM-DD",
+        "transactionTime": "HH:MM if shown else ''",
+        "subtotal": 0.00, "tax": 0.00, "total": 0.00,
+        "currency": "USD",
+        "paymentMethod": "cash/visa/mastercard/etc if shown; NEVER include card numbers",
+        "lineItems": [ { "description": "", "quantity": 0, "unitPrice": 0.00, "lineTotal": 0.00, "productCode": "" } ],
+        "extractionConfidence": 0.0
+      }
+      Rules:
+      - Extract only what is visible; use '' or null for anything not present.
+      - NEVER output full or partial card numbers; strip any masked digits.
+      - Amounts are positive numbers. Do not invent totals.
+      - Return the JSON object only.
+    `;
+
+    const prompt = isActivity ? activityPrompt : isReceiptV1 ? receiptV1Prompt : receiptPrompt;
 
     // Send to Gemini (one or more image parts).
     const result = await model.generateContent([prompt, ...imageParts]);
@@ -142,6 +170,13 @@ export default async function handler(req, res) {
     // Clean up the response
     responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
     let parsedData = JSON.parse(responseText);
+
+    // Receipt V1: return the single structured object as-is; the client
+    // sanitizes it (schema + card-digit stripping) via sanitizeReceiptImageResult.
+    if (isReceiptV1) {
+      const obj = Array.isArray(parsedData) ? parsedData[0] : parsedData;
+      return res.status(200).json({ receipt: obj || null });
+    }
 
     // Activity mode returns a normalized { transactions: [...] } envelope with
     // signed amounts, defensively shaped so the client never trusts raw model output.
