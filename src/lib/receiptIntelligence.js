@@ -13,7 +13,7 @@
 import { normalizeMerchant } from './transactionIntelligence.js';
 
 export const DOCUMENT_TYPES = ['receipt', 'invoice'];
-export const SOURCE_TYPES = ['image', 'xml'];
+export const SOURCE_TYPES = ['image', 'xml', 'pdf'];
 export const DEFAULT_MATCH_WINDOW_DAYS = 2;
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,156 @@ export function parsePanamaInvoiceXml(xml) {
 }
 
 // ---------------------------------------------------------------------------
-// Normalization — shape any raw extraction (image or xml) to the V1 schema.
+// Panama DGI PDF ("Comprobante Auxiliar de Factura Electrónica") text parser.
+// DETERMINISTIC — operates on already-extracted PDF text (via unpdf), never
+// Gemini. Handles both observed layout families and excludes recipient identity.
+// ---------------------------------------------------------------------------
+
+// Detect a Panama DGI electronic-invoice PDF from its extracted text. Requires
+// MULTIPLE strong signals so arbitrary PDFs are never misclassified.
+export function isPanamaDgiPdf(text) {
+  const s = String(text || '').toUpperCase();
+  if (!s) return false;
+  let signals = 0;
+  if (/\bDGI\b/.test(s) || /DIRECCION\s+GENERAL\s+DE\s+INGRESOS/.test(s)) signals += 1;
+  if (/COMPROBANTE\s+AUXILIAR\s+DE\s+FACTURA\s+ELECTR/.test(s)) signals += 1;
+  if (/\bCUFE\b/.test(s)) signals += 1;
+  if (/RUC/.test(s) && /EMISOR/.test(s)) signals += 1;
+  if (/FORMA\s+PAGO|MEDIOS?\s+DE\s+PAGO/.test(s)) signals += 1;
+  if ((/SUBTOTAL|SUB\s*TOTAL/.test(s)) && /\bTOTAL\b/.test(s)) signals += 1;
+  return signals >= 3;
+}
+
+// Real DGI PDF text (via unpdf) comes back as ONE flat, single-spaced string —
+// column boundaries and line breaks are lost — so parsing is inline-label based.
+const flat = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+const grab = (s, re) => { const m = String(s).match(re); return m && m[1] != null ? m[1].trim() : null; };
+const money = (v) => (v == null ? null : num(v));
+const NUM_TOKEN = /^-?\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^-?\d+(?:\.\d+)?$/;
+const UNIT_TOKEN = /^(UND|UNID|UN|U|C\/U|PZA|EA|SERV)$/i;
+
+const MONTHS_ES = {
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7,
+  agosto: 8, septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+};
+// Parse a Spanish long date ("27 de agosto de 2026") -> yyyy-MM-dd, else fall back.
+function normalizeSpanishDate(value) {
+  if (!value) return null;
+  const m = String(value).match(/(\d{1,2})\s+de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})/i);
+  if (m) {
+    const mo = MONTHS_ES[m[2].toLowerCase()];
+    if (mo) return `${m[3]}-${pad2(mo)}-${pad2(Number(m[1]))}`;
+  }
+  return normalizeDate(value);
+}
+
+// Parse one DGI item row (flat). `codeFirst` (Layout A: header starts "Código")
+// means the leading token is the product code; otherwise (Layout B: "Ítem Código
+// Descripción") the leading integer is a sequence number and code/description
+// columns cannot be separated from single-spaced text (kept together — see report).
+function parseItemRow(line, codeFirst) {
+  let toks = flat(line).split(' ');
+  if (toks.length < 3) return null;
+  let productCode;
+  if (codeFirst) {
+    productCode = toks[0]; toks = toks.slice(1);
+  } else if (/^\d+$/.test(toks[0])) {
+    toks = toks.slice(1); // drop the Ítem sequence number
+  }
+  const descTok = [];
+  let i = 0;
+  for (; i < toks.length; i += 1) {
+    if (NUM_TOKEN.test(toks[i]) || UNIT_TOKEN.test(toks[i])) break;
+    descTok.push(toks[i]);
+  }
+  const description = str(descTok.join(' '));
+  const nums = toks.slice(i).filter((x) => NUM_TOKEN.test(x)).map((x) => num(x));
+  if (!description || nums.length < 2) return null;
+  return {
+    description,
+    quantity: nums[0],
+    unitPrice: nums[1],
+    lineTotal: nums[nums.length - 1],
+    productCode: productCode || undefined,
+    taxAmount: nums.length >= 4 ? nums[nums.length - 2] : undefined,
+  };
+}
+
+export function parsePanamaDgiPdfText(text) {
+  if (!isPanamaDgiPdf(text)) return null;
+  const s = flat(text);
+  if (!s) return null;
+
+  // ISSUER identity only. Layout A uses explicit "Nombre Emisor:" / "Ruc Emisor:".
+  // Layout B interleaves emisor+receptor columns ("Emisor Receptor Nombre: <issuer>
+  // Tipo de receptor: … Nombre: <recipient> …"): the issuer name is bounded BEFORE
+  // "Tipo de receptor", and the issuer RUC is the FIRST "RUC:" (recipient's comes
+  // after). Recipient name/RUC/address/email/phone are therefore never extracted.
+  const legalEntityName = str(
+    grab(s, /Nombre Emisor:\s*(.+?)\s+(?:Ruc Emisor:|DV:|Direcci[oó]n Emisor:)/i)
+    || grab(s, /Emisor\s+Receptor\s+Nombre:\s*(.+?)\s+Tipo de receptor:/i)
+    || grab(s, /\bEmisor\b\s+Nombre:\s*(.+?)\s+(?:Tipo|Receptor|RUC|Direcci[oó]n)/i),
+  );
+  const taxId = str(
+    grab(s, /Ruc Emisor:\s*([\d-]+)/i)
+    || grab(s, /\bR\.?U\.?C\.?:\s*([\d-]+)/i),
+  );
+  const branchCode = str(grab(s, /Sucursal\/Punto:\s*([\w/-]+)/i) || grab(s, /Sucursal:\s*([\w-]+)/i));
+  const transactionDate = normalizeSpanishDate(
+    grab(s, /Fecha emisi[oó]n:\s*(.+?)\s+(?:N[uú]mero|Protocolo|Consulte|Hora|Sucursal)/i)
+    || grab(s, /\bFecha:\s*(.+?)\s+(?:Hora|Sucursal|Consulte|N[uú]mero|Protocolo)/i),
+  );
+  const transactionTime = normalizeTime(grab(s, /\bHora:\s*([\d:]+)/i) || '');
+  const invoiceNumber = str(grab(s, /N[uú]mero:\s*(\d+)/i));
+  const documentId = str(grab(s, /CUFE:\s*([A-Z0-9-]{20,})/i));
+  const subtotal = money(
+    grab(s, /Subtotal sin impuestos\s+([\d.,]+)/i)
+    || grab(s, /Sub\s?Total\s+([\d.,]+)/i)
+    || grab(s, /Subtotal\s+([\d.,]+)/i),
+  );
+  // Tax: "Total Impuesto <n>" (Layout A) or a STANDALONE "Impuestos <n>" (Layout
+  // B) — the negative lookbehind avoids matching "Subtotal sin impuestos <n>".
+  const tax = money(
+    grab(s, /Total Impuesto\s+([\d.,]+)/i)
+    || grab(s, /(?<!sin\s)\bImpuestos\b\s+(\d[\d.,]*\.\d{2})/i),
+  );
+  const discountTotal = money(grab(s, /(?:Total )?Descuento\s+([\d.,]+)/i));
+  // Final total: the LAST bare "Total <money>" — skips the ITBMS-breakdown
+  // "Total 0.00", and "Total Impuesto/Recibido/de pago/ítem" never match (a word
+  // follows "Total", not a number).
+  const totalMatches = [...s.matchAll(/\bTotal\s+(\d[\d,]*\.\d{2})\b/gi)];
+  const total = totalMatches.length ? num(totalMatches[totalMatches.length - 1][1]) : null;
+  const paymentMethod = str(
+    grab(s, /Forma Pago\s+(.+?)\s+[\d.,]+\.\d{2}/i)
+    || grab(s, /Medios de Pago\s+(?:Tipo\s+B\/?\.?\s+Valor\s+Observaci[oó]n\s+)?(.+?)\s+[\d.,]+\.\d{2}/i),
+  );
+
+  // Line items: text between the column header and the "Cantidad (Items|Total…)"
+  // marker. codeFirst distinguishes the two layout families by their header.
+  const codeFirst = !/[íi]tem\s+c[óo]digo/i.test(s);
+  const itemBlock = grab(s, /(?:Valor Total|Total [íi]tem)\s+([\s\S]+?)\s+Cantidad\s+(?:Items|Total)/i);
+  const lineItems = [];
+  if (itemBlock) {
+    const item = parseItemRow(itemBlock, codeFirst);
+    if (item) lineItems.push(item);
+  }
+
+  if (total == null && !legalEntityName && lineItems.length === 0) return null;
+
+  return normalizeReceipt({
+    documentType: 'invoice',
+    sourceType: 'pdf',
+    merchantDisplayName: legalEntityName,
+    legalEntityName, taxId, branchCode, transactionDate, transactionTime,
+    subtotal, tax, discountTotal, total,
+    currency: 'USD', paymentMethod,
+    lineItems, invoiceNumber, documentId,
+    extractionConfidence: 0.9, // deterministic text, layout-heuristic
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Normalization — shape any raw extraction (image, xml, or pdf) to the V1 schema.
 // ---------------------------------------------------------------------------
 export function normalizeReceipt(raw = {}) {
   const documentType = DOCUMENT_TYPES.includes(raw.documentType) ? raw.documentType : 'receipt';

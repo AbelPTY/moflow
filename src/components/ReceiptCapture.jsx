@@ -2,11 +2,16 @@ import React, { useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { authHeader } from '../lib/apiClient';
 import {
-  sanitizeReceiptImageResult, parsePanamaInvoiceXml,
+  sanitizeReceiptImageResult, parsePanamaInvoiceXml, parsePanamaDgiPdfText,
   matchReceiptToTransactions, isHighConfidenceMatch,
 } from '../lib/receiptIntelligence';
 import { fetchMatchWindowTransactions, saveReceipt, receiptExistsByFingerprint } from '../lib/receiptStore';
 import { classifyForInsert } from '../lib/transactionRules';
+
+// Bounded upload sizes (bilingual "file too large" on exceed).
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_PDF_BYTES = 10 * 1024 * 1024;   // 10MB (invoice document)
+const MAX_XML_BYTES = 2 * 1024 * 1024;    // 2MB (conservative)
 
 // Receipt & Invoice Intelligence V1 — capture + preview + match + confirm modal.
 // Two entry points feed it: Activity (no preselected transaction) and a specific
@@ -25,7 +30,9 @@ export default function ReceiptCapture({ open, onClose, preselectedTransaction =
   const [suggestion, setSuggestion] = useState(null);
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
-  const imgInput = useRef(null);
+  const photoCaptureInput = useRef(null); // Take photo (camera)
+  const photoChooseInput = useRef(null);  // Choose photo (library)
+  const pdfInput = useRef(null);
   const xmlInput = useRef(null);
 
   const reset = () => { setReceipt(null); setIsXml(false); setCandidates([]); setChosenTxId(null); setSuggestion(null); setNote(''); setError(''); };
@@ -35,8 +42,16 @@ export default function ReceiptCapture({ open, onClose, preselectedTransaction =
     const r = new FileReader();
     r.onload = () => resolve(r.result);
     r.onerror = reject;
-    if (as === 'text') r.readAsText(file); else r.readAsDataURL(file);
+    if (as === 'text') r.readAsText(file);
+    else if (as === 'arraybuffer') r.readAsArrayBuffer(file);
+    else r.readAsDataURL(file);
   });
+
+  // Reject oversized files with a friendly bilingual message. Returns true if OK.
+  const withinSize = (file, max) => {
+    if (file && file.size > max) { setError(t('activity.receipt.fileTooLarge')); return false; }
+    return true;
+  };
 
   // After extraction: compute match candidates + a category suggestion (display
   // only — never written here). Preselected transaction is verified for coherence.
@@ -64,8 +79,11 @@ export default function ReceiptCapture({ open, onClose, preselectedTransaction =
     try { if (await receiptExistsByFingerprint(null, r.fingerprint)) setNote(t('activity.receipt.duplicateWarning')); } catch { /* ignore */ }
   };
 
-  const onImage = async (e) => {
+  // Image (Take photo / Choose photo) — unchanged Gemini path (scanReceipt
+  // mode:'receipt_v1'). `ref` clears the matching input afterward.
+  const onImage = (ref) => async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
+    if (!withinSize(file, MAX_IMAGE_BYTES)) { if (ref.current) ref.current.value = ''; return; }
     setBusy(true); setError(''); setNote('');
     try {
       const dataUrl = await readFileAs(file, 'dataurl');
@@ -82,11 +100,12 @@ export default function ReceiptCapture({ open, onClose, preselectedTransaction =
       await afterExtract(r);
     } catch {
       setError(t('activity.receipt.noExtraction'));
-    } finally { setBusy(false); if (imgInput.current) imgInput.current.value = ''; }
+    } finally { setBusy(false); if (ref.current) ref.current.value = ''; }
   };
 
   const onXml = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
+    if (!withinSize(file, MAX_XML_BYTES)) { if (xmlInput.current) xmlInput.current.value = ''; return; }
     setBusy(true); setError(''); setNote('');
     try {
       const text = await readFileAs(file, 'text');
@@ -99,12 +118,33 @@ export default function ReceiptCapture({ open, onClose, preselectedTransaction =
     } finally { setBusy(false); if (xmlInput.current) xmlInput.current.value = ''; }
   };
 
+  // PDF — text-readable Panama DGI invoices are parsed DETERMINISTICALLY, locally
+  // (unpdf text extraction + parsePanamaDgiPdfText). Never sent to Gemini.
+  const onPdf = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!withinSize(file, MAX_PDF_BYTES)) { if (pdfInput.current) pdfInput.current.value = ''; return; }
+    setBusy(true); setError(''); setNote('');
+    try {
+      const buf = await readFileAs(file, 'arraybuffer');
+      const { extractText, getDocumentProxy } = await import('unpdf');
+      const pdf = await getDocumentProxy(new Uint8Array(buf));
+      const { text } = await extractText(pdf, { mergePages: true });
+      const r = parsePanamaDgiPdfText(Array.isArray(text) ? text.join('\n') : String(text || ''));
+      if (!r) { setError(t('activity.receipt.noExtraction')); return; }
+      setIsXml(true); // reuse the "Panama electronic invoice detected" banner
+      await afterExtract(r);
+    } catch {
+      setError(t('activity.receipt.noExtraction'));
+    } finally { setBusy(false); if (pdfInput.current) pdfInput.current.value = ''; }
+  };
+
   const confirm = async (transactionId) => {
     setBusy(true); setError('');
     try {
       const out = await saveReceipt(null, { receipt, transactionId: transactionId || null });
       if (out.ok) { setNote(transactionId ? t('activity.receipt.saved') : t('activity.receipt.savedNoMatch')); onSaved?.(); setTimeout(close, 900); }
-      else if (out.pendingMigration) setError(t('activity.receipt.saveError'));
+      else if (out.pendingMigration) setError(t('activity.receipt.storageNotReady'));
+      else if (out.duplicate) setError(t('activity.receipt.alreadyAttached'));
       else setError(t('activity.receipt.saveError'));
     } catch {
       setError(t('activity.receipt.saveError'));
@@ -122,10 +162,20 @@ export default function ReceiptCapture({ open, onClose, preselectedTransaction =
 
         {!receipt && (
           <div className="space-y-2">
-            <input ref={imgInput} type="file" accept="image/*" capture="environment" onChange={onImage} className="hidden" />
+            {/* Separate inputs so iOS reliably exposes camera vs library vs files. */}
+            <input ref={photoCaptureInput} type="file" accept="image/*" capture="environment" onChange={onImage(photoCaptureInput)} className="hidden" />
+            <input ref={photoChooseInput} type="file" accept="image/*" onChange={onImage(photoChooseInput)} className="hidden" />
+            <input ref={pdfInput} type="file" accept="application/pdf,.pdf" onChange={onPdf} className="hidden" />
             <input ref={xmlInput} type="file" accept=".xml,text/xml,application/xml" onChange={onXml} className="hidden" />
-            <button onClick={() => imgInput.current?.click()} disabled={busy} className="w-full py-3 rounded-lg bg-primary text-primary-foreground text-sm font-bold disabled:opacity-50">
-              {busy ? t('activity.receipt.extracting') : t('activity.receipt.takePhoto')}
+            {busy && <p className="text-xs text-muted-foreground">{t('activity.receipt.extracting')}</p>}
+            <button onClick={() => photoCaptureInput.current?.click()} disabled={busy} className="w-full py-3 rounded-lg bg-primary text-primary-foreground text-sm font-bold disabled:opacity-50">
+              {t('activity.receipt.takePhoto')}
+            </button>
+            <button onClick={() => photoChooseInput.current?.click()} disabled={busy} className="w-full py-3 rounded-lg border border-border text-sm font-semibold text-foreground disabled:opacity-50">
+              {t('activity.receipt.choosePhoto')}
+            </button>
+            <button onClick={() => pdfInput.current?.click()} disabled={busy} className="w-full py-3 rounded-lg border border-border text-sm font-semibold text-foreground disabled:opacity-50">
+              {t('activity.receipt.uploadPdf')}
             </button>
             <button onClick={() => xmlInput.current?.click()} disabled={busy} className="w-full py-3 rounded-lg border border-border text-sm font-semibold text-foreground disabled:opacity-50">
               {t('activity.receipt.uploadXml')}

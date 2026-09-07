@@ -70,10 +70,16 @@ export async function saveReceipt(c, { receipt, transactionId } = {}) {
     .select('id')
     .single();
   if (error) {
-    // 42P01 = undefined_table -> migration not applied yet.
-    if (String(error.code) === '42P01' || /does not exist/i.test(error.message || '')) {
+    const code = String(error.code || '');
+    // 42P01 = undefined_table -> migration not applied yet (controlled state,
+    // NOT a generic failure). Only this specific signal maps to pending storage.
+    if (code === '42P01' || /relation .* does not exist/i.test(error.message || '')) {
       return { ok: false, pendingMigration: true };
     }
+    // 23505 = unique_violation on (user_id, fingerprint) -> duplicate receipt.
+    if (code === '23505') return { ok: false, duplicate: true };
+    // Everything else (permission/RLS/network/other DB) is surfaced as-is so a
+    // real error is never masked behind the pending-storage message.
     return { ok: false, reason: 'db_error' };
   }
   return { ok: true, id: data?.id };
