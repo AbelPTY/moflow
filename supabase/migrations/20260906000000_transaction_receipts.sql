@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS public.transaction_receipts (
   user_id uuid NOT NULL DEFAULT auth.uid(),
   transaction_id uuid REFERENCES public.transactions(id) ON DELETE SET NULL,
   document_type text NOT NULL DEFAULT 'receipt' CHECK (document_type IN ('receipt', 'invoice')),
-  source_type text NOT NULL DEFAULT 'image' CHECK (source_type IN ('image', 'xml')),
+  source_type text NOT NULL DEFAULT 'image' CHECK (source_type IN ('image', 'xml', 'pdf')),
   merchant_name text,
   legal_entity_name text,
   tax_id text,
