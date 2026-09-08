@@ -200,6 +200,8 @@ try {
   // =====================================================================
   const { isPanamaDgiPdf, parsePanamaDgiPdfText } = RI;
   const RS = await vite.ssrLoadModule('/src/lib/receiptStore.js');
+  const EN = await vite.ssrLoadModule('/src/i18n/en-US.js');
+  const ES = await vite.ssrLoadModule('/src/i18n/es-PA.js');
   const fs = await import('node:fs');
   const readSrc = (p) => fs.readFileSync(p, 'utf8');
 
@@ -311,6 +313,53 @@ try {
   ok('AB: duplicate fingerprint -> duplicate', dup.ok === false && dup.duplicate === true);
   const other = await RS.saveReceipt(fakeClient({ code: '42501', message: 'permission denied' }), { receipt: school });
   ok('AC: unrelated DB error NOT masked as pending/duplicate', other.ok === false && !other.pendingMigration && !other.duplicate && other.reason === 'db_error');
+
+  // =====================================================================
+  // V1.1 PDF RUNTIME — unpdf return-shape normalization + full browser-path pipeline.
+  // =====================================================================
+  const PT = await vite.ssrLoadModule('/src/lib/pdfText.js');
+  const { normalizeUnpdfResult } = PT;
+
+  // A/B. unpdf return-shape normalization to ONE plain string.
+  ok('runtime A: {text:string} (mergePages:true) -> string', normalizeUnpdfResult({ totalPages: 1, text: 'flat text' }) === 'flat text');
+  ok('runtime B: {text:string[]} (mergePages:false) -> joined', normalizeUnpdfResult({ totalPages: 2, text: ['page 1', 'page 2'] }) === 'page 1\npage 2');
+  ok('runtime: bare string passes through', normalizeUnpdfResult('bare') === 'bare');
+  ok('runtime: bare array joined', normalizeUnpdfResult(['a', 'b']) === 'a\nb');
+  ok('runtime: page-of-items {str} joined', normalizeUnpdfResult({ text: [[{ str: 'MEN' }, { str: 'S' }]] }) === 'MENS');
+  ok('runtime: null/undefined -> ""', normalizeUnpdfResult(null) === '' && normalizeUnpdfResult(undefined) === '');
+
+  // C/E/F/G/H. Full browser-equivalent pipeline: unpdf envelope -> normalize ->
+  // detect -> parse -> normalized receipt with the exact keys ReceiptCapture renders.
+  const unpdfEnvelope = { totalPages: 1, text: FREIGHT_PDF }; // real mergePages:true shape
+  const pdfText = normalizeUnpdfResult(unpdfEnvelope);
+  ok('runtime C: detection true on normalized text', isPanamaDgiPdf(pdfText) === true);
+  const pipe = parsePanamaDgiPdfText(pdfText);
+  ok('runtime C2: parser returns a receipt (state would populate)', pipe !== null);
+  ok('runtime E: display merchant', pipe.merchantDisplayName === 'TEST LOGISTICS PANAMA');
+  ok('runtime F: display date', pipe.transactionDate === '2026-08-27');
+  ok('runtime G: display total', pipe.total === 16.2);
+  ok('runtime H: display items count', pipe.lineItems.length === 1);
+  ok('runtime: receipt has ALL render keys', ['merchantDisplayName', 'legalEntityName', 'transactionDate', 'total', 'tax', 'subtotal', 'lineItems', 'paymentMethod', 'sourceType', 'documentType'].every((k) => k in pipe) && pipe.sourceType === 'pdf' && pipe.documentType === 'invoice');
+
+  // D. DGI signatures present BUT fields unreadable -> parser returns null (the
+  // component then shows the controlled "detected but couldn't read" message,
+  // never an empty receipt).
+  const dgiButUnreadable = 'DGI Comprobante Auxiliar de Factura Electrónica CUFE Ruc Emisor Forma Pago Subtotal Total';
+  ok('runtime D: DGI detected but unparseable -> isPanamaDgiPdf true', isPanamaDgiPdf(dgiButUnreadable) === true);
+  ok('runtime D2: ... and parser returns null (controlled state, not empty receipt)', parsePanamaDgiPdfText(dgiButUnreadable) === null);
+
+  // I/J. Matching independence: the normalized receipt is complete regardless of
+  // any match. (matchReceiptToTransactions is pure and cannot mutate the receipt.)
+  const noMatch = matchReceiptToTransactions(pipe, [], { windowDays: 2 });
+  ok('runtime I: no matching transaction still yields a full receipt', noMatch.length === 0 && pipe.total === 16.2 && pipe.merchantDisplayName === 'TEST LOGISTICS PANAMA');
+
+  // Controlled-state i18n present (EN + ES).
+  ok('runtime: EN controlled states', EN.default.activity.receipt.parseFailed === 'Panama invoice detected, but its details could not be read.' && typeof EN.default.activity.receipt.pdfUnreadable === 'string' && typeof EN.default.activity.receipt.notPanamaInvoice === 'string');
+  ok('runtime: ES controlled states', ES.default.activity.receipt.parseFailed === 'Factura electrónica de Panamá detectada, pero no se pudieron leer sus datos.' && typeof ES.default.activity.receipt.pdfUnreadable === 'string' && typeof ES.default.activity.receipt.notPanamaInvoice === 'string');
+
+  // K/L. XML + image flows unchanged (asserted above: XML inv.total===10.54; image sanitize).
+  ok('runtime K: XML flow unchanged', inv.total === 10.54 && inv.sourceType === 'xml');
+  ok('runtime L: image flow unchanged (receipt_v1 mode present)', /mode: 'receipt_v1'/.test(readSrc('src/components/ReceiptCapture.jsx')));
 
   // AD. /api unchanged (V1.1 adds no endpoint).
   ok('AD: /api count remains 12', readdirSync('api').filter((f) => f.endsWith('.js')).length === 12);
