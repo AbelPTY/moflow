@@ -369,6 +369,22 @@ export function sanitizeReceiptImageResult(obj) {
   return r;
 }
 
+// A parsed receipt is only USABLE (renderable as a success) when it carries real
+// evidence: a non-empty merchant, a valid date, and a finite total >= 0. This is
+// the critical gate that prevents an empty object (merchant '', date '', total 0,
+// no items) from being treated as a successful parse just because DGI signatures
+// were detected. Note: total === 0 is allowed (a legitimately zero invoice), so
+// we never require total > 0.
+export function isUsableReceipt(receipt) {
+  if (!receipt || typeof receipt !== 'object') return false;
+  const merchant = str(receipt.merchantDisplayName || receipt.legalEntityName);
+  if (!merchant) return false;
+  if (!normalizeDate(receipt.transactionDate)) return false;
+  const total = receipt.total;
+  if (!(typeof total === 'number' && Number.isFinite(total) && total >= 0)) return false;
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Duplicate fingerprint — stable, from safe fields only (no raw content hash).
 // ---------------------------------------------------------------------------

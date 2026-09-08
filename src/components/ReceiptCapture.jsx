@@ -2,10 +2,9 @@ import React, { useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { authHeader } from '../lib/apiClient';
 import {
-  sanitizeReceiptImageResult, parsePanamaInvoiceXml, parsePanamaDgiPdfText, isPanamaDgiPdf,
+  sanitizeReceiptImageResult, parsePanamaInvoiceXml, normalizeReceipt, isUsableReceipt,
   matchReceiptToTransactions, isHighConfidenceMatch,
 } from '../lib/receiptIntelligence';
-import { extractPdfText } from '../lib/pdfText';
 import { fetchMatchWindowTransactions, saveReceipt, receiptExistsByFingerprint } from '../lib/receiptStore';
 import { classifyForInsert } from '../lib/transactionRules';
 
@@ -119,37 +118,33 @@ export default function ReceiptCapture({ open, onClose, preselectedTransaction =
     } finally { setBusy(false); if (xmlInput.current) xmlInput.current.value = ''; }
   };
 
-  // PDF — text-readable Panama DGI invoices are parsed DETERMINISTICALLY, locally
-  // (unpdf text extraction + parsePanamaDgiPdfText). Never sent to Gemini. Each
-  // stage maps to a DISTINCT controlled message so "detected" never implies a
-  // successful parse and an empty receipt is never rendered.
-  const dbg = (stage, extra) => { if (import.meta.env && import.meta.env.DEV) console.debug(`[receipt-pdf] ${stage}`, extra || ''); };
+  // PDF — Panama DGI invoices are extracted + parsed on the SERVER (Node unpdf +
+  // deterministic parsePanamaDgiPdfText, NO Gemini), because mobile-browser pdfjs
+  // extraction is unreliable. The client uploads the file to the existing
+  // parsePdfStatement endpoint (mode='receipt_dgi'), then sanitizes + gates the
+  // result. Each stage maps to a DISTINCT controlled message; the "detected"
+  // banner + receipt render ONLY for a usable parse (never an empty object).
   const onPdf = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     if (!withinSize(file, MAX_PDF_BYTES)) { if (pdfInput.current) pdfInput.current.value = ''; return; }
     setBusy(true); setError(''); setNote('');
     try {
-      const buf = await readFileAs(file, 'arraybuffer');
-      dbg('arraybuffer', buf?.byteLength);
-      let text;
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('mode', 'receipt_dgi');
+      let res;
       try {
-        text = await extractPdfText(new Uint8Array(buf)); // robust shape-normalized string
-      } catch (err) {
-        dbg('extract-threw', err && err.name);
-        setError(t('activity.receipt.pdfUnreadable')); // pdfjs/unpdf failed to read the file
-        return;
-      }
-      dbg('text-length', text ? text.length : 0);
-      if (!text || !text.trim()) { setError(t('activity.receipt.pdfUnreadable')); return; }
-      if (!isPanamaDgiPdf(text)) { dbg('not-dgi'); setError(t('activity.receipt.notPanamaInvoice')); return; }
-      const r = parsePanamaDgiPdfText(text);
-      dbg('parsed', r ? 'ok' : 'null');
-      // DGI signatures found but fields unreadable -> controlled message, NOT an empty receipt.
-      if (!r) { setError(t('activity.receipt.parseFailed')); return; }
-      setIsXml(true); // "Panama electronic invoice detected" banner (parse succeeded)
+        res = await fetch('/api/parsePdfStatement', { method: 'POST', headers: { ...(await authHeader()) }, body: fd });
+      } catch { setError(t('activity.receipt.pdfUploadFailed')); return; }
+      if (!res.ok) { setError(t('activity.receipt.pdfUploadFailed')); return; } // upload / server extraction failed
+      const json = await res.json().catch(() => null);
+      if (!json || !json.detected) { setError(t('activity.receipt.notPanamaInvoice')); return; }
+      // Client-side sanitize/validate (defense in depth) + the critical usable gate.
+      const r = json.receipt ? normalizeReceipt({ ...json.receipt, sourceType: 'pdf', documentType: 'invoice' }) : null;
+      if (!r || !isUsableReceipt(r)) { setError(t('activity.receipt.parseFailed')); return; } // detected, but unreadable/empty
+      setIsXml(true); // "Panama electronic invoice detected" banner (usable parse only)
       await afterExtract(r);
-    } catch (err) {
-      dbg('unexpected', err && err.name);
+    } catch {
       setError(t('activity.receipt.noExtraction'));
     } finally { setBusy(false); if (pdfInput.current) pdfInput.current.value = ''; }
   };

@@ -831,6 +831,7 @@ export default {
       extracting: 'Leyendo recibo…',
       noExtraction: 'No pudimos leer este recibo. Prueba con una foto más clara o un XML de factura de Panamá.',
       pdfUnreadable: 'No pudimos leer el texto de este PDF.',
+      pdfUploadFailed: 'No pudimos procesar este PDF. Inténtalo de nuevo.',
       notPanamaInvoice: 'Este PDF no parece una factura electrónica de Panamá.',
       parseFailed: 'Factura electrónica de Panamá detectada, pero no se pudieron leer sus datos.',
       panamaInvoiceDetected: 'Factura electrónica de Panamá detectada',

@@ -5,6 +5,16 @@ import fs from 'fs';
 import { requireUser } from '../server/auth.js';
 import { applyRateLimit } from '../server/rateLimit.js';
 import { safeError } from '../server/safeError.js';
+import { isPanamaDgiPdf, parsePanamaDgiPdfText } from '../src/lib/receiptIntelligence.js';
+
+// Receipt & Invoice Intelligence V1.1 — deterministic Panama DGI receipt parse
+// from already-extracted PDF text. Runs server-side (Node unpdf, where the real
+// DGI PDFs parse reliably — unlike mobile pdfjs). NO Gemini, NO raw-text return.
+// Returns { detected, receipt } where receipt is the normalized schema or null.
+export function buildDgiReceipt(pdfText) {
+  if (!isPanamaDgiPdf(pdfText)) return { detected: false, receipt: null };
+  return { detected: true, receipt: parsePanamaDgiPdfText(pdfText) || null };
+}
 
 // Disable Vercel's default body parser so formidable can process the multipart/form-data stream
 export const config = {
@@ -110,6 +120,15 @@ export default async function handler(req, res) {
 
     if (!pdfText || !pdfText.trim()) {
       return res.status(400).json({ error: 'Could not extract text from PDF' });
+    }
+
+    // Receipt Intelligence V1.1: deterministic DGI receipt parse (NO Gemini). The
+    // existing statement path (mode absent) is untouched and continues below.
+    const mode = Array.isArray(fields.mode) ? fields.mode[0] : fields.mode;
+    if (mode === 'receipt_dgi') {
+      const { detected, receipt } = buildDgiReceipt(pdfText);
+      // Never return raw PDF text; only the normalized (recipient-free) receipt.
+      return res.status(200).json({ detected, receipt });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;

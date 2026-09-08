@@ -841,6 +841,7 @@ export default {
       extracting: 'Reading receipt…',
       noExtraction: "We couldn't read this receipt. Try a clearer photo or a Panama invoice XML.",
       pdfUnreadable: "We couldn't read text from this PDF.",
+      pdfUploadFailed: "We couldn't process this PDF. Please try again.",
       notPanamaInvoice: "This PDF doesn't look like a Panama electronic invoice.",
       parseFailed: 'Panama invoice detected, but its details could not be read.',
       panamaInvoiceDetected: 'Panama electronic invoice detected',

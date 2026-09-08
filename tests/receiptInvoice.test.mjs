@@ -315,51 +315,50 @@ try {
   ok('AC: unrelated DB error NOT masked as pending/duplicate', other.ok === false && !other.pendingMigration && !other.duplicate && other.reason === 'db_error');
 
   // =====================================================================
-  // V1.1 PDF RUNTIME — unpdf return-shape normalization + full browser-path pipeline.
+  // V1.1 PDF RUNTIME — production PDF path moved SERVER-SIDE (no browser unpdf).
   // =====================================================================
-  const PT = await vite.ssrLoadModule('/src/lib/pdfText.js');
-  const { normalizeUnpdfResult } = PT;
+  const { isUsableReceipt } = RI;
+  // A. The PDF path now runs on the EXISTING parsePdfStatement endpoint via
+  // buildDgiReceipt(pdfText). Importing the api module here also proves its
+  // import chain (→ receiptIntelligence → transactionIntelligence → merchant_rules.json)
+  // resolves under a bundler, exactly as in the Vercel build.
+  const API = await vite.ssrLoadModule('/api/parsePdfStatement.js');
+  const { buildDgiReceipt } = API;
+  ok('A: receipt_dgi handled by existing parsePdfStatement (buildDgiReceipt)', typeof buildDgiReceipt === 'function');
 
-  // A/B. unpdf return-shape normalization to ONE plain string.
-  ok('runtime A: {text:string} (mergePages:true) -> string', normalizeUnpdfResult({ totalPages: 1, text: 'flat text' }) === 'flat text');
-  ok('runtime B: {text:string[]} (mergePages:false) -> joined', normalizeUnpdfResult({ totalPages: 2, text: ['page 1', 'page 2'] }) === 'page 1\npage 2');
-  ok('runtime: bare string passes through', normalizeUnpdfResult('bare') === 'bare');
-  ok('runtime: bare array joined', normalizeUnpdfResult(['a', 'b']) === 'a\nb');
-  ok('runtime: page-of-items {str} joined', normalizeUnpdfResult({ text: [[{ str: 'MEN' }, { str: 'S' }]] }) === 'MENS');
-  ok('runtime: null/undefined -> ""', normalizeUnpdfResult(null) === '' && normalizeUnpdfResult(undefined) === '');
+  // D. Real Layout A server handler -> usable normalized receipt.
+  const aOut = buildDgiReceipt(FREIGHT_PDF);
+  ok('D: layout A server -> receipt', aOut.detected === true && aOut.receipt && aOut.receipt.merchantDisplayName === 'TEST LOGISTICS PANAMA' && aOut.receipt.total === 16.2 && aOut.receipt.sourceType === 'pdf');
+  ok('D2: layout A usable', isUsableReceipt(aOut.receipt) === true);
+  ok('D3: layout A has ALL render keys', ['merchantDisplayName', 'legalEntityName', 'transactionDate', 'total', 'tax', 'subtotal', 'lineItems', 'paymentMethod', 'sourceType', 'documentType', 'fingerprint'].every((k) => k in aOut.receipt) && aOut.receipt.documentType === 'invoice');
+  // E. Real Layout B server handler -> usable normalized receipt.
+  const bOut = buildDgiReceipt(SCHOOL_PDF);
+  ok('E: layout B server -> receipt', bOut.detected === true && bOut.receipt && bOut.receipt.merchantDisplayName === 'TEST SCHOOL PANAMA' && bOut.receipt.total === 580 && bOut.receipt.lineItems.length === 1);
+  ok('E2: layout B usable', isUsableReceipt(bOut.receipt) === true);
+  ok('server: non-DGI PDF text -> detected:false', buildDgiReceipt('lorem ipsum total 3.00').detected === false && buildDgiReceipt('lorem ipsum total 3.00').receipt === null);
 
-  // C/E/F/G/H. Full browser-equivalent pipeline: unpdf envelope -> normalize ->
-  // detect -> parse -> normalized receipt with the exact keys ReceiptCapture renders.
-  const unpdfEnvelope = { totalPages: 1, text: FREIGHT_PDF }; // real mergePages:true shape
-  const pdfText = normalizeUnpdfResult(unpdfEnvelope);
-  ok('runtime C: detection true on normalized text', isPanamaDgiPdf(pdfText) === true);
-  const pipe = parsePanamaDgiPdfText(pdfText);
-  ok('runtime C2: parser returns a receipt (state would populate)', pipe !== null);
-  ok('runtime E: display merchant', pipe.merchantDisplayName === 'TEST LOGISTICS PANAMA');
-  ok('runtime F: display date', pipe.transactionDate === '2026-08-27');
-  ok('runtime G: display total', pipe.total === 16.2);
-  ok('runtime H: display items count', pipe.lineItems.length === 1);
-  ok('runtime: receipt has ALL render keys', ['merchantDisplayName', 'legalEntityName', 'transactionDate', 'total', 'tax', 'subtotal', 'lineItems', 'paymentMethod', 'sourceType', 'documentType'].every((k) => k in pipe) && pipe.sourceType === 'pdf' && pipe.documentType === 'invoice');
+  // F/G/H. The critical isUsableReceipt gate — an empty/zero object is NOT success.
+  ok('F: empty merchant+date+0-total object is NOT usable', isUsableReceipt(normalizeReceipt({ sourceType: 'pdf', merchantDisplayName: '', transactionDate: '', total: 0, lineItems: [] })) === false);
+  const unreadable = buildDgiReceipt('DGI Comprobante Auxiliar de Factura Electrónica CUFE Ruc Emisor Forma Pago Subtotal Total');
+  ok('G: DGI detected but parser null -> not a success state', unreadable.detected === true && unreadable.receipt === null);
+  ok('H: usable needs merchant+valid date+finite total (0 allowed, null not)', isUsableReceipt(normalizeReceipt({ sourceType: 'pdf', merchantDisplayName: 'X', transactionDate: '2026-09-03', total: 0 })) === true && isUsableReceipt(normalizeReceipt({ sourceType: 'pdf', merchantDisplayName: 'X', transactionDate: '2026-09-03', total: null })) === false);
 
-  // D. DGI signatures present BUT fields unreadable -> parser returns null (the
-  // component then shows the controlled "detected but couldn't read" message,
-  // never an empty receipt).
-  const dgiButUnreadable = 'DGI Comprobante Auxiliar de Factura Electrónica CUFE Ruc Emisor Forma Pago Subtotal Total';
-  ok('runtime D: DGI detected but unparseable -> isPanamaDgiPdf true', isPanamaDgiPdf(dgiButUnreadable) === true);
-  ok('runtime D2: ... and parser returns null (controlled state, not empty receipt)', parsePanamaDgiPdfText(dgiButUnreadable) === null);
+  // I/J. Matching independence: the receipt is complete regardless of any match,
+  // and matching is pure so a match failure cannot clear it.
+  const noMatch = matchReceiptToTransactions(aOut.receipt, [], { windowDays: 2 });
+  ok('I: no matching transaction still yields a full receipt', noMatch.length === 0 && aOut.receipt.total === 16.2 && aOut.receipt.merchantDisplayName === 'TEST LOGISTICS PANAMA');
+  ok('J: matching does not mutate the receipt', aOut.receipt.merchantDisplayName === 'TEST LOGISTICS PANAMA' && aOut.receipt.lineItems.length === 1);
 
-  // I/J. Matching independence: the normalized receipt is complete regardless of
-  // any match. (matchReceiptToTransactions is pure and cannot mutate the receipt.)
-  const noMatch = matchReceiptToTransactions(pipe, [], { windowDays: 2 });
-  ok('runtime I: no matching transaction still yields a full receipt', noMatch.length === 0 && pipe.total === 16.2 && pipe.merchantDisplayName === 'TEST LOGISTICS PANAMA');
+  // Controlled-state i18n present (EN + ES), including the new upload-failed state.
+  ok('i18n: EN controlled states', EN.default.activity.receipt.parseFailed && typeof EN.default.activity.receipt.notPanamaInvoice === 'string' && typeof EN.default.activity.receipt.pdfUploadFailed === 'string');
+  ok('i18n: ES controlled states', ES.default.activity.receipt.parseFailed && typeof ES.default.activity.receipt.notPanamaInvoice === 'string' && typeof ES.default.activity.receipt.pdfUploadFailed === 'string');
 
-  // Controlled-state i18n present (EN + ES).
-  ok('runtime: EN controlled states', EN.default.activity.receipt.parseFailed === 'Panama invoice detected, but its details could not be read.' && typeof EN.default.activity.receipt.pdfUnreadable === 'string' && typeof EN.default.activity.receipt.notPanamaInvoice === 'string');
-  ok('runtime: ES controlled states', ES.default.activity.receipt.parseFailed === 'Factura electrónica de Panamá detectada, pero no se pudieron leer sus datos.' && typeof ES.default.activity.receipt.pdfUnreadable === 'string' && typeof ES.default.activity.receipt.notPanamaInvoice === 'string');
-
-  // K/L. XML + image flows unchanged (asserted above: XML inv.total===10.54; image sanitize).
-  ok('runtime K: XML flow unchanged', inv.total === 10.54 && inv.sourceType === 'xml');
-  ok('runtime L: image flow unchanged (receipt_v1 mode present)', /mode: 'receipt_v1'/.test(readSrc('src/components/ReceiptCapture.jsx')));
+  // L. Client PDF path uploads to the server (receipt_dgi), not client unpdf.
+  const rcSrc = readSrc('src/components/ReceiptCapture.jsx');
+  ok('L: PDF path uploads to parsePdfStatement receipt_dgi (no client unpdf)', /receipt_dgi/.test(rcSrc) && /parsePdfStatement/.test(rcSrc) && !/extractPdfText/.test(rcSrc) && !/pdfText/.test(rcSrc));
+  // K/M/N. XML + image flows unchanged.
+  ok('K: XML flow unchanged (local parser)', inv.total === 10.54 && inv.sourceType === 'xml');
+  ok('N: image flow unchanged (receipt_v1)', /mode: 'receipt_v1'/.test(rcSrc));
 
   // AD. /api unchanged (V1.1 adds no endpoint).
   ok('AD: /api count remains 12', readdirSync('api').filter((f) => f.endsWith('.js')).length === 12);
