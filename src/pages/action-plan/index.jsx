@@ -18,7 +18,7 @@ const SpeechRecognition =
   typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
 
 const ActionPlan = () => {
-  const { tasks, loading, addTasks, toggleDone, deleteTask } = useTasks();
+  const { tasks, loading, addTasks, updateTaskTitle, toggleDone, deleteTask } = useTasks();
   const { t } = useI18n();
   const catLabel = (cat) => t(`taskCategories.${cat}`);
 
@@ -27,6 +27,41 @@ const ActionPlan = () => {
   const [extracting, setExtracting] = useState(false);
   const [extracted, setExtracted] = useState([]);
   const recognitionRef = useRef(null);
+
+  // Inline note editing: which task is open, and its working text. Editing is a
+  // text-only correction of the SAME row (no re-extraction, no new record).
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const startEditNote = (task) => {
+    setEditingId(task.id);
+    setEditText(task.title); // prefill with the current note; original preserved
+  };
+
+  const cancelEditNote = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const saveEditNote = async (id) => {
+    // Reject a blank-only note without any destructive write.
+    if (!editText.trim()) {
+      alert(t('actionPlan.noteEmpty'));
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await updateTaskTitle(id, editText);
+      setEditingId(null);
+      setEditText('');
+    } catch (e) {
+      // The original note is preserved (hook rolls back on failure).
+      alert(t('actionPlan.noteSaveFailed', { msg: e?.message || e }));
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   const startRecording = () => {
     if (!SpeechRecognition) {
@@ -172,21 +207,60 @@ const ActionPlan = () => {
               <div key={cat} className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
                 <div className={`px-4 py-2 text-xs font-bold uppercase tracking-wider border-b ${CATEGORY_STYLE[cat] || CATEGORY_STYLE.Other}`}>{catLabel(cat)}</div>
                 <div className="divide-y divide-border">
-                  {grouped[cat].map((task) => (
+                  {grouped[cat].map((task) => {
+                    const isEditing = editingId === task.id;
+                    return (
                     <div key={task.id} className="flex items-center gap-3 px-4 py-3 group">
                       <button
                         onClick={() => toggleDone(task.id, !task.done)}
-                        className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-all ${task.done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-border hover:border-emerald-500 bg-card'}`}
+                        disabled={isEditing}
+                        className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-all ${task.done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-border hover:border-emerald-500 bg-card'} ${isEditing ? 'opacity-40' : ''}`}
                       >
                         {task.done && <Icon name="Check" size={12} />}
                       </button>
                       <div className="flex-1 min-w-0">
-                        <p className={`text-sm ${task.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>{task.title}</p>
-                        {task.due_date && <p className={`text-[11px] ${task.done ? 'text-muted-foreground' : 'text-muted-foreground'}`}>{t('actionPlan.due', { date: task.due_date })}</p>}
+                        {isEditing ? (
+                          <div className="flex flex-col gap-2">
+                            <textarea
+                              value={editText}
+                              onChange={(e) => setEditText(e.target.value)}
+                              rows={2}
+                              autoFocus
+                              className="w-full border border-primary rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none bg-card"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => saveEditNote(task.id)}
+                                disabled={savingEdit || !editText.trim()}
+                                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 disabled:opacity-40"
+                              >
+                                {t('actionPlan.noteSave')}
+                              </button>
+                              <button
+                                onClick={cancelEditNote}
+                                disabled={savingEdit}
+                                className="px-3 py-1.5 text-muted-foreground hover:bg-muted rounded-lg text-xs font-medium"
+                              >
+                                {t('actionPlan.noteCancel')}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className={`text-sm ${task.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>{task.title}</p>
+                            {task.due_date && <p className={`text-[11px] ${task.done ? 'text-muted-foreground' : 'text-muted-foreground'}`}>{t('actionPlan.due', { date: task.due_date })}</p>}
+                          </>
+                        )}
                       </div>
-                      <button onClick={() => deleteTask(task.id)} className="text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><Icon name="Trash2" size={15} /></button>
+                      {!isEditing && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button onClick={() => startEditNote(task)} title={t('actionPlan.noteEdit')} className="text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"><Icon name="Edit2" size={15} /></button>
+                          <button onClick={() => deleteTask(task.id)} title={t('common.delete')} className="text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Icon name="Trash2" size={15} /></button>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

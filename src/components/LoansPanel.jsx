@@ -342,6 +342,7 @@ function LoanRow({ loan, payments, addPayment, onEdit, onDelete, simulatorOpen, 
         payment_date: loan.next_payment_date,
         status: 'pending',
         is_recurring: true,
+        recurrence_frequency: 'monthly', // loan commitments recur monthly
       });
       trackProductEvent('loan_payment_added_to_flow', { source_screen: 'cards' });
       setFlowNote(t('loans.monthlyAddedToFlow'));
@@ -456,6 +457,7 @@ function LoanSimulator({ loan, baseline, addPayment }) {
         payment_date: extraDate,
         status: 'pending',
         is_recurring: false,
+        recurrence_frequency: null, // one-time extra principal, does not recur
       });
       trackProductEvent('loan_payment_added_to_flow', { source_screen: 'cards' });
       setExtraNote(t('loans.oneTimeAddedToFlow'));

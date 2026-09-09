@@ -14,6 +14,7 @@ import {
 import Icon from './AppIcon';
 import Button from './ui/Button';
 import useScheduledPayments from '../hooks/useScheduledPayments';
+import { nextScheduledPaymentDate, recurrenceForMonthlyFlag } from '../lib/scheduledRecurrence';
 import { useI18n } from '../i18n';
 
 const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
@@ -95,28 +96,31 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
     await updatePayment(payment.id, { status: newStatus });
 
     // --- THE AUTO-ROLLOVER MAGIC ---
-    // If we just marked it as paid, and it is a recurring payment...
+    // If we just marked it as paid, and it is a recurring payment, advance to
+    // the NEXT occurrence for this payment's cadence. A null recurrence_frequency
+    // (legacy recurring rows created before the column existed) is treated as
+    // monthly, so existing users keep their exact prior behavior.
     if (newStatus === 'paid' && payment.is_recurring) {
-      // Safely calculate exactly 1 month ahead
-      const [year, month, day] = payment.payment_date.split('-');
-      const currentDateObj = new Date(year, month - 1, day);
-      const nextMonthDate = addMonths(currentDateObj, 1);
-      const nextMonthDateStr = format(nextMonthDate, 'yyyy-MM-dd');
+      const nextDate = nextScheduledPaymentDate(payment.payment_date, payment.recurrence_frequency);
+      const nextDateStr = nextDate ? format(nextDate, 'yyyy-MM-dd') : null;
 
       // Guard against creating a duplicate: if toggling paid/unpaid/paid
       // happens more than once, don't create a second "phantom" entry for
-      // the same entity + next month's date.
+      // the same entity + next occurrence date.
       const alreadyExists = (payments || []).some(
-        (p) => p.entity === payment.entity && p.payment_date === nextMonthDateStr
+        (p) => p.entity === payment.entity && p.payment_date === nextDateStr
       );
 
-      if (!alreadyExists) {
+      if (nextDateStr && !alreadyExists) {
         await addPayment({
           entity: payment.entity,
           amount: payment.amount,
-          payment_date: nextMonthDateStr,
+          payment_date: nextDateStr,
           status: 'pending',
-          is_recurring: true
+          is_recurring: true,
+          // Carry the cadence forward so the series stays on its frequency
+          // across every rollover (weekly stays weekly, etc.).
+          recurrence_frequency: payment.recurrence_frequency ?? null,
         });
       }
     }
@@ -148,7 +152,11 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
       amount: parseFloat(newAmount),
       payment_date: format(selectedDate, 'yyyy-MM-dd'),
       status: 'pending',
-      is_recurring: newIsRecurring // Added to save the recurring status
+      is_recurring: newIsRecurring, // Added to save the recurring status
+      // This form creates MONTHLY recurring bills (the "Recurring monthly"
+      // checkbox), so persist the cadence explicitly; a one-time payment stores
+      // null. Frequency-aware rollover reads this back.
+      recurrence_frequency: recurrenceForMonthlyFlag(newIsRecurring),
     };
     await addPayment(payload);
     setIsAdding(false);

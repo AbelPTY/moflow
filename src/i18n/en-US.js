@@ -171,6 +171,12 @@ export default {
     voiceUnsupported: 'Voice input is not supported on this browser — type your note in the box instead.',
     extractFailed: 'Could not turn that into tasks — try again or type it out.',
     saveFailed: 'Failed to save tasks: {msg}',
+    // Note editing (text correction of an existing note — same record).
+    noteEdit: 'Edit',
+    noteSave: 'Save',
+    noteCancel: 'Cancel',
+    noteEmpty: 'A note cannot be empty.',
+    noteSaveFailed: "Couldn't save your note — the original was kept. {msg}",
   },
 
   // Display for AI-returned task categories (canonical English values kept for
@@ -520,6 +526,39 @@ export default {
     overdueSummary: '{count} overdue',
     dueThisWeek: '{count} due this week',
     totalLine: '— {amount} total',
+  },
+
+  // Activity → Add to Payments: turn a historical expense into a future
+  // recurring obligation (Payments/Bills), consumed by Flow through the normal
+  // pipeline. "Payments" = Pagos, "Flow" = Flujo (never "Add to Flow").
+  addToPayments: {
+    action: 'Add to Payments',
+    title: 'Add to Payments',
+    subtitle: 'Turn this expense into a future recurring payment. Nothing is created until you confirm.',
+    name: 'Name',
+    amount: 'Amount',
+    frequency: 'Frequency',
+    frequencyUnset: 'Choose a frequency…',
+    nextDueDate: 'Next due date',
+    freq: {
+      monthly: 'Monthly',
+      semi_monthly: 'Twice monthly',
+      biweekly: 'Biweekly',
+      weekly: 'Weekly',
+    },
+    categoryContext: 'Category: {value}',
+    accountContext: 'Account: {value}',
+    fromTransaction: 'From transaction dated {date}',
+    confirm: 'Add to Payments',
+    creating: 'Adding…',
+    createFailed: "Couldn't add this payment: {msg}",
+    pickFrequency: 'Choose how often this repeats.',
+    pickDueDate: 'Confirm the next due date.',
+    duplicateTitle: 'A similar payment already exists.',
+    useExisting: 'Use existing',
+    createAnyway: 'Create anyway',
+    successTitle: 'Added to Payments',
+    viewPayment: 'View payment',
   },
 
   txIntel: {

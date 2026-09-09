@@ -167,6 +167,12 @@ export default {
     voiceUnsupported: 'La entrada por voz no es compatible con este navegador — escribe tu nota en el recuadro.',
     extractFailed: 'No pudimos convertir eso en tareas — inténtalo de nuevo o escríbelo.',
     saveFailed: 'No se pudieron guardar las tareas: {msg}',
+    // Edición de nota (corrección de texto de una nota existente — mismo registro).
+    noteEdit: 'Editar',
+    noteSave: 'Guardar',
+    noteCancel: 'Cancelar',
+    noteEmpty: 'Una nota no puede estar vacía.',
+    noteSaveFailed: 'No se pudo guardar tu nota — se conservó la original. {msg}',
   },
 
   taskCategories: {
@@ -512,6 +518,39 @@ export default {
     overdueSummary: '{count} vencidos',
     dueThisWeek: '{count} vencen esta semana',
     totalLine: '— {amount} en total',
+  },
+
+  // Actividad → Agregar a Pagos: convierte un gasto histórico en un pago futuro
+  // recurrente (Pagos), que el Flujo consume por la vía normal. Nunca "Agregar
+  // a Flujo".
+  addToPayments: {
+    action: 'Agregar a Pagos',
+    title: 'Agregar a Pagos',
+    subtitle: 'Convierte este gasto en un pago recurrente futuro. No se crea nada hasta que confirmes.',
+    name: 'Nombre',
+    amount: 'Monto',
+    frequency: 'Frecuencia',
+    frequencyUnset: 'Elige una frecuencia…',
+    nextDueDate: 'Próxima fecha de vencimiento',
+    freq: {
+      monthly: 'Mensual',
+      semi_monthly: 'Dos veces al mes',
+      biweekly: 'Cada dos semanas',
+      weekly: 'Semanal',
+    },
+    categoryContext: 'Categoría: {value}',
+    accountContext: 'Cuenta: {value}',
+    fromTransaction: 'De la transacción del {date}',
+    confirm: 'Agregar a Pagos',
+    creating: 'Agregando…',
+    createFailed: 'No se pudo agregar este pago: {msg}',
+    pickFrequency: 'Elige con qué frecuencia se repite.',
+    pickDueDate: 'Confirma la próxima fecha de vencimiento.',
+    duplicateTitle: 'Ya existe un pago similar.',
+    useExisting: 'Usar existente',
+    createAnyway: 'Crear de todos modos',
+    successTitle: 'Agregado a Pagos',
+    viewPayment: 'Ver pago',
   },
 
   txIntel: {

@@ -18,6 +18,8 @@ import RecentActivityScanner from '../../components/RecentActivityScanner';
 import CategorizationScopeDialog from '../../components/CategorizationScopeDialog';
 import CalibrationPanel from '../../components/CalibrationPanel';
 import ReceiptCapture from '../../components/ReceiptCapture';
+import AddToPaymentModal from '../../components/AddToPaymentModal';
+import { isEligibleForPayment } from '../../lib/paymentFromActivity';
 import useUserMerchantRules from '../../hooks/useUserMerchantRules';
 import useOnboarding from '../../hooks/useOnboarding';
 import useAccounts from '../../hooks/useAccounts';
@@ -204,6 +206,8 @@ const FinancialOverview = () => {
   // Receipt & Invoice Intelligence: null = closed; { transaction? } = open (with
   // optional preselected transaction from the per-row "Attach" action).
   const [receiptModal, setReceiptModal] = useState(null);
+  // Activity → Add to Payments: null = closed; { transaction } = open.
+  const [paymentModal, setPaymentModal] = useState(null);
 
   const filters = useMemo(() => ({ dateRange: 'all' }), []);
   const transactionOptions = useMemo(() => ({ filters }), [filters]);
@@ -597,7 +601,7 @@ const handleDeleteTransaction = async (tx) => {
                     <td className="p-4">{isEditing ? (<select value={editForm.category} onChange={(e) => handleEditChange('category', e.target.value)} className="border border-primary rounded p-1 text-xs w-full bg-card">{uniqueCategories.map(c => <option key={c} value={c}>{tCategory(c)}</option>)}</select>) : (<span className="bg-muted text-foreground px-2 py-1 rounded-md text-xs font-medium border border-border">{tCategory(tx.category)}</span>)}</td>
                     <td className="p-4">{isEditing ? (<select value={editForm.budgetBucket} onChange={(e) => handleEditChange('budgetBucket', e.target.value)} className="border border-primary rounded p-1 text-xs w-full bg-card">{['NEEDS', 'WANTS', 'SAVINGS', 'INCOME', 'TRANSFERS', 'DEBT_FUNDING'].map(b => <option key={b} value={b}>{t(`buckets.${b.toLowerCase()}`)}</option>)}</select>) : (<span className={`px-2 py-1 rounded text-xs font-bold border ${tx.budgetBucket === 'NEEDS' ? 'bg-green-100 text-green-800 border-green-200' : tx.budgetBucket === 'WANTS' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-muted text-muted-foreground border-border'}`}>{tx.budgetBucket ? t(`buckets.${String(tx.budgetBucket).toLowerCase()}`) : ''}</span>)}</td>
                     <td className={`p-4 text-right font-mono font-medium ${tx.amount > 0 ? 'text-green-600' : 'text-foreground'}`}>{tx.amount > 0 ? '+' : ''}${Math.abs(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                    <td className="p-4 text-center">{isEditing ? (<div className="flex justify-center gap-1"><Button variant="success" size="icon" iconName="Check" className="h-8 w-8" onClick={saveEditing} /><Button variant="outline" size="icon" iconName="X" className="h-8 w-8 text-muted-foreground" onClick={cancelEditing} title={t('activity.cancelEdit')} /></div>) : (<div className="flex justify-center gap-1"><Button variant="ghost" size="icon" iconName="Receipt" onClick={() => setReceiptModal({ transaction: { id: tx.id, merchant: tx.merchant, amount: tx.amount, date: tx.dateString } })} className="hover:bg-primary/10 text-muted-foreground hover:text-primary" title={t('activity.receipt.attach')} /><Button variant="ghost" size="icon" iconName="Edit2" onClick={() => startEditing(tx)} className="hover:bg-primary/10 text-muted-foreground hover:text-primary" title={t('activity.editTitle')} /><Button variant="ghost" size="icon" iconName="Trash2" onClick={() => handleDeleteTransaction(tx)} className="hover:bg-destructive/10 text-muted-foreground hover:text-destructive" title={t('activity.deleteTitle')} /></div>)}</td>
+                    <td className="p-4 text-center">{isEditing ? (<div className="flex justify-center gap-1"><Button variant="success" size="icon" iconName="Check" className="h-8 w-8" onClick={saveEditing} /><Button variant="outline" size="icon" iconName="X" className="h-8 w-8 text-muted-foreground" onClick={cancelEditing} title={t('activity.cancelEdit')} /></div>) : (<div className="flex justify-center gap-1">{isEligibleForPayment(tx) && (<Button variant="ghost" size="icon" iconName="CalendarPlus" onClick={() => setPaymentModal({ transaction: tx })} className="hover:bg-emerald-500/10 text-muted-foreground hover:text-emerald-600" title={t('addToPayments.action')} />)}<Button variant="ghost" size="icon" iconName="Receipt" onClick={() => setReceiptModal({ transaction: { id: tx.id, merchant: tx.merchant, amount: tx.amount, date: tx.dateString } })} className="hover:bg-primary/10 text-muted-foreground hover:text-primary" title={t('activity.receipt.attach')} /><Button variant="ghost" size="icon" iconName="Edit2" onClick={() => startEditing(tx)} className="hover:bg-primary/10 text-muted-foreground hover:text-primary" title={t('activity.editTitle')} /><Button variant="ghost" size="icon" iconName="Trash2" onClick={() => handleDeleteTransaction(tx)} className="hover:bg-destructive/10 text-muted-foreground hover:text-destructive" title={t('activity.deleteTitle')} /></div>)}</td>
                   </tr>
                 )})}
               </tbody>
@@ -636,6 +640,13 @@ const handleDeleteTransaction = async (tx) => {
         preselectedTransaction={receiptModal?.transaction || null}
         onClose={() => setReceiptModal(null)}
         onSaved={() => { if (refetch) refetch(); }}
+      />
+
+      <AddToPaymentModal
+        open={!!paymentModal}
+        transaction={paymentModal?.transaction || null}
+        transactions={transactions || []}
+        onClose={() => setPaymentModal(null)}
       />
     </div>
   );
