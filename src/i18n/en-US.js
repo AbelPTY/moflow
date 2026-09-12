@@ -177,6 +177,9 @@ export default {
     noteCancel: 'Cancel',
     noteEmpty: 'A note cannot be empty.',
     noteSaveFailed: "Couldn't save your note — the original was kept. {msg}",
+    dueDateLabel: 'Due date',
+    noDueDate: 'No due date',
+    clearDueDate: 'Clear',
   },
 
   // Display for AI-returned task categories (canonical English values kept for

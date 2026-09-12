@@ -18,7 +18,7 @@ const SpeechRecognition =
   typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
 
 const ActionPlan = () => {
-  const { tasks, loading, addTasks, updateTaskTitle, toggleDone, deleteTask } = useTasks();
+  const { tasks, loading, addTasks, updateTask, toggleDone, deleteTask } = useTasks();
   const { t } = useI18n();
   const catLabel = (cat) => t(`taskCategories.${cat}`);
 
@@ -28,20 +28,24 @@ const ActionPlan = () => {
   const [extracted, setExtracted] = useState([]);
   const recognitionRef = useRef(null);
 
-  // Inline note editing: which task is open, and its working text. Editing is a
-  // text-only correction of the SAME row (no re-extraction, no new record).
+  // Inline editing: which task is open, plus its working note text and due date.
+  // Editing is a direct correction of the SAME row (no re-extraction, no new
+  // record). editDate is a 'YYYY-MM-DD' string, or '' for no due date.
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
+  const [editDate, setEditDate] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   const startEditNote = (task) => {
     setEditingId(task.id);
     setEditText(task.title); // prefill with the current note; original preserved
+    setEditDate(task.due_date || ''); // prefill current due date (empty if null)
   };
 
   const cancelEditNote = () => {
     setEditingId(null);
     setEditText('');
+    setEditDate('');
   };
 
   const saveEditNote = async (id) => {
@@ -52,11 +56,14 @@ const ActionPlan = () => {
     }
     setSavingEdit(true);
     try {
-      await updateTaskTitle(id, editText);
+      // Empty date field -> null (clears the due date); a valid date is stored
+      // verbatim as 'YYYY-MM-DD' with no timezone conversion.
+      await updateTask(id, { title: editText, dueDate: editDate });
       setEditingId(null);
       setEditText('');
+      setEditDate('');
     } catch (e) {
-      // The original note is preserved (hook rolls back on failure).
+      // The original note AND due date are preserved (hook rolls back on failure).
       alert(t('actionPlan.noteSaveFailed', { msg: e?.message || e }));
     } finally {
       setSavingEdit(false);
@@ -228,6 +235,26 @@ const ActionPlan = () => {
                               autoFocus
                               className="w-full border border-primary rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none bg-card"
                             />
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <label className="text-[11px] font-medium text-muted-foreground">{t('actionPlan.dueDateLabel')}</label>
+                              <input
+                                type="date"
+                                value={editDate}
+                                onChange={(e) => setEditDate(e.target.value)}
+                                className="border border-border rounded-lg px-2 py-1 text-xs bg-card focus:ring-2 focus:ring-blue-500 outline-none"
+                              />
+                              {editDate ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditDate('')}
+                                  className="text-[11px] text-muted-foreground hover:text-red-500 underline"
+                                >
+                                  {t('actionPlan.clearDueDate')}
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-muted-foreground italic">{t('actionPlan.noDueDate')}</span>
+                              )}
+                            </div>
                             <div className="flex gap-2">
                               <button
                                 onClick={() => saveEditNote(task.id)}

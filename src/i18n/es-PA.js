@@ -173,6 +173,9 @@ export default {
     noteCancel: 'Cancelar',
     noteEmpty: 'Una nota no puede estar vacía.',
     noteSaveFailed: 'No se pudo guardar tu nota — se conservó la original. {msg}',
+    dueDateLabel: 'Fecha límite',
+    noDueDate: 'Sin fecha límite',
+    clearDueDate: 'Borrar',
   },
 
   taskCategories: {

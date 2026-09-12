@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { buildTaskTitleUpdate, mergeUpdatedTask } from '../lib/actionPlanNote';
+import { buildTaskEditPatch, mergeUpdatedTask } from '../lib/actionPlanNote';
 
 // Loads/manages Action Plan tasks (tasks table). RLS scopes rows to the user.
 const useTasks = () => {
@@ -49,14 +49,16 @@ const useTasks = () => {
     await load();
   };
 
-  // Edit an existing note's text ONLY (a text correction). Updates the SAME row
-  // via its id: no re-transcription, no AI re-interpretation, no second record,
-  // and no change to category/due_date/done/created_at/user_id. The patch is
-  // strictly { title } (see buildTaskTitleUpdate). On failure the previous note
-  // is restored so the original is never lost. `tasks` has no updated_at column,
-  // so none is written.
-  const updateTaskTitle = async (id, newTitle) => {
-    const patch = buildTaskTitleUpdate(newTitle); // throws EMPTY_NOTE on blank
+  // Edit an existing task's note text and/or due date (a direct correction).
+  // The SINGLE content-update path: it updates the SAME row via its id — no
+  // re-transcription, no AI re-interpretation, no second record, and no change
+  // to category/done/id/created_at/user_id. The patch is strictly
+  // { title, due_date } (see buildTaskEditPatch). Optimistic update sets both
+  // fields; on failure the previous task list is restored so BOTH the original
+  // note and the original due date stay visible. `tasks` has no updated_at
+  // column, so none is written.
+  const updateTask = async (id, { title, dueDate }) => {
+    const patch = buildTaskEditPatch({ title, dueDate }); // throws EMPTY_NOTE on blank
     const prev = tasks;
     setTasks((p) => p.map((t) => (t.id === id ? mergeUpdatedTask(t, patch) : t)));
 
@@ -67,7 +69,7 @@ const useTasks = () => {
       .select();
 
     // RLS-blocked updates return an empty array without throwing; treat that as
-    // a failure and roll back so the visible note stays the original.
+    // a failure and roll back so the visible note AND due date stay original.
     if (updateError || !data || data.length === 0) {
       setTasks(prev);
       throw updateError || new Error('Update failed');
@@ -88,7 +90,7 @@ const useTasks = () => {
     if (deleteError) { setTasks(prev); throw deleteError; }
   };
 
-  return { tasks, loading, error, addTasks, updateTaskTitle, toggleDone, deleteTask, refetch: load };
+  return { tasks, loading, error, addTasks, updateTask, toggleDone, deleteTask, refetch: load };
 };
 
 export default useTasks;

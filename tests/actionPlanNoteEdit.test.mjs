@@ -1,5 +1,5 @@
-// Workflow Quality Pass V1 — Action Plan note editing (text correction of an
-// existing note). Pure logic + i18n presence. FICTIONAL data only.
+// Workflow Quality Pass V1 — Action Plan editing (note text + due date) of an
+// existing task. Pure logic + i18n presence. FICTIONAL data only.
 //
 // Run (where Node exists) from repo root:  node tests/actionPlanNoteEdit.test.mjs
 import { createServer } from 'vite';
@@ -10,13 +10,13 @@ const ok = (label, cond) => { if (cond) { pass++; console.log('PASS ' + label); 
 const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom' });
 
 try {
-  const { sanitizeNoteText, isValidNote, buildTaskTitleUpdate, noteChanged, mergeUpdatedTask } =
+  const { sanitizeNoteText, isValidNote, sanitizeDueDate, buildTaskEditPatch, noteChanged, mergeUpdatedTask } =
     await vite.ssrLoadModule('/src/lib/actionPlanNote.js');
   const { translate } = await vite.ssrLoadModule('/src/i18n/core.js');
   const en = (k, v) => translate('en-US', k, v);
   const es = (k, v) => translate('es-PA', k, v);
 
-  // A synthetic existing note (same record the UI edits in place).
+  // A synthetic existing task (the same record the UI edits in place).
   const task = {
     id: 'task-abc',
     user_id: 'user-xyz',
@@ -27,54 +27,86 @@ try {
     created_at: '2026-09-01T10:00:00Z',
   };
 
-  // B. Current note text is prefilled for editing (unchanged after sanitize).
-  ok('B: prefill equals current note', sanitizeNoteText(task.title) === task.title);
+  // A. Edit mode preloads the current note (unchanged after sanitize).
+  ok('A: preload note', sanitizeNoteText(task.title) === task.title);
+  // B. Edit mode preloads the current due date verbatim.
+  ok('B: preload due date', sanitizeDueDate(task.due_date) === '2026-09-12');
+  ok('B: null due date -> empty field maps to null', sanitizeDueDate(null) === null && sanitizeDueDate('') === null);
 
-  // C. Cancel preserves the original note (a no-op edit yields no change).
-  ok('C: no-op edit is not a change', noteChanged(task.title, task.title) === false);
-  ok('C: whitespace-only diff is not a change', noteChanged('hello', ' hello ') === false);
+  // C. Save changes the title only (due date unchanged).
+  const cTitle = buildTaskEditPatch({ title: 'Pay the Star card Saturday', dueDate: task.due_date });
+  ok('C: title changed', cTitle.title === 'Pay the Star card Saturday');
+  ok('C: due date unchanged', cTitle.due_date === '2026-09-12');
 
-  // D. Save updates the SAME record id: patch carries only title; merge keeps id.
-  const patch = buildTaskTitleUpdate('Pay the Star card Saturday');
-  const saved = mergeUpdatedTask(task, patch);
-  ok('D: patch has title', patch.title === 'Pay the Star card Saturday');
-  ok('D: same record id preserved', saved.id === task.id);
+  // D. Save changes the due date only (title unchanged).
+  const dDate = buildTaskEditPatch({ title: task.title, dueDate: '2026-10-01' });
+  ok('D: due date changed', dDate.due_date === '2026-10-01');
+  ok('D: title unchanged', dDate.title === task.title);
 
-  // E. Blank-only note is rejected (no destructive overwrite).
-  ok('E: blank invalid', isValidNote('   ') === false);
-  ok('E: empty invalid', isValidNote('') === false);
-  let threw = false;
-  try { buildTaskTitleUpdate('   '); } catch (e) { threw = e.code === 'EMPTY_NOTE'; }
-  ok('E: buildTaskTitleUpdate throws on blank', threw);
+  // E. Save changes both.
+  const eBoth = buildTaskEditPatch({ title: 'New note', dueDate: '2026-12-25' });
+  ok('E: both changed', eBoth.title === 'New note' && eBoth.due_date === '2026-12-25');
 
-  // F. Voice interpretation is NOT rerun: the patch contains ONLY { title } —
-  //    no transcript/extract/category/due_date fields that would re-interpret.
-  const keys = Object.keys(patch);
-  ok('F: patch is title-only', keys.length === 1 && keys[0] === 'title');
+  // F. Clearing the due date -> null (never '', undefined, or Invalid Date).
+  const fClear = buildTaskEditPatch({ title: task.title, dueDate: '' });
+  ok('F: cleared due date is null', fClear.due_date === null);
+  ok('F: undefined due date is null', buildTaskEditPatch({ title: task.title }).due_date === null);
+  ok('F: invalid calendar date is null', sanitizeDueDate('2026-02-30') === null);
 
-  // G. created_at is preserved through the merge.
-  ok('G: created_at preserved', saved.created_at === task.created_at);
-  ok('G: user_id preserved', saved.user_id === task.user_id);
-  ok('G: metadata untouched', saved.category === task.category && saved.due_date === task.due_date && saved.done === task.done);
+  // G. Cancel preserves the original title/date (a no-op edit yields no change;
+  //    nothing is written).
+  ok('G: no-op title is not a change', noteChanged(task.title, task.title) === false);
+  const gPatch = buildTaskEditPatch({ title: task.title, dueDate: task.due_date });
+  const gSaved = mergeUpdatedTask(task, gPatch);
+  ok('G: title/date unchanged on no-op save', gSaved.title === task.title && gSaved.due_date === task.due_date);
 
-  // H. updated_at: the tasks table has no such column, so the patch must NOT
-  //    write one (no migration added for a text correction).
-  ok('H: no updated_at in patch', !('updated_at' in patch));
+  // H. Same task id preserved through the merge.
+  const saved = mergeUpdatedTask(task, eBoth);
+  ok('H: same record id preserved', saved.id === task.id);
 
-  // I. Update failure preserves the old visible note: rolling back to the prior
-  //    task (the merge is only applied on success) keeps the original title.
+  // I. created_at preserved.
+  ok('I: created_at preserved', saved.created_at === task.created_at);
+
+  // J. category / done / user_id unchanged (patch never carries them; merge keeps them).
+  ok('J: user_id unchanged', saved.user_id === task.user_id);
+  ok('J: category unchanged', saved.category === task.category);
+  ok('J: done unchanged', saved.done === task.done);
+
+  // K/L. No voice transcription / AI reinterpretation: the patch is EXACTLY
+  //      { title, due_date } — no transcript/extract/category/done fields.
+  const keys = Object.keys(eBoth).sort();
+  ok('K: patch keys are exactly title + due_date', keys.length === 2 && keys[0] === 'due_date' && keys[1] === 'title');
+  ok('L: no reinterpretation fields', !('transcript' in eBoth) && !('category' in eBoth) && !('done' in eBoth) && !('id' in eBoth) && !('created_at' in eBoth));
+  ok('K/L: no updated_at (tasks has no such column)', !('updated_at' in eBoth));
+
+  // M. Failed update rolls back BOTH fields: the hook restores the prior task
+  //    list, so title and due date both revert to the originals.
+  const optimistic = mergeUpdatedTask(task, buildTaskEditPatch({ title: 'temp', dueDate: '2027-01-01' }));
+  ok('M: optimistic changed both', optimistic.title === 'temp' && optimistic.due_date === '2027-01-01');
   const rolledBack = { ...task }; // what the hook restores on failure
-  ok('I: failure keeps original note', rolledBack.title === 'Pay the Star card Friday');
+  ok('M: rollback restores title', rolledBack.title === 'Pay the Star card Friday');
+  ok('M: rollback restores due date', rolledBack.due_date === '2026-09-12');
 
-  // Trimming on save.
-  ok('trim: surrounding whitespace removed', buildTaskTitleUpdate('  new text  ').title === 'new text');
+  // N. YYYY-MM-DD stored verbatim (no timezone shift); timestamps are rejected.
+  ok('N: calendar date verbatim', sanitizeDueDate('2026-09-15') === '2026-09-15');
+  ok('N: no UTC day shift / timestamp rejected', sanitizeDueDate('2026-09-15T19:00:00Z') === null);
+  ok('N: leap day accepted verbatim', sanitizeDueDate('2024-02-29') === '2024-02-29');
 
-  // P. EN/ES strings present and switch.
-  ok('P: noteEdit EN/ES', en('actionPlan.noteEdit') === 'Edit' && es('actionPlan.noteEdit') === 'Editar');
-  ok('P: noteSave EN/ES', en('actionPlan.noteSave') === 'Save' && es('actionPlan.noteSave') === 'Guardar');
-  ok('P: noteCancel EN/ES', en('actionPlan.noteCancel') === 'Cancel' && es('actionPlan.noteCancel') === 'Cancelar');
-  ok('P: noteEmpty differs', en('actionPlan.noteEmpty') !== es('actionPlan.noteEmpty') && en('actionPlan.noteEmpty') !== 'actionPlan.noteEmpty');
-  ok('P: noteSaveFailed interpolates ES', es('actionPlan.noteSaveFailed', { msg: 'x' }).includes('x'));
+  // Blank-only title still rejected (no destructive overwrite).
+  ok('blank title rejected', isValidNote('   ') === false);
+  let threw = false;
+  try { buildTaskEditPatch({ title: '   ', dueDate: '2026-09-12' }); } catch (e) { threw = e.code === 'EMPTY_NOTE'; }
+  ok('buildTaskEditPatch throws on blank title', threw);
+  ok('trim: surrounding whitespace removed', buildTaskEditPatch({ title: '  new text  ', dueDate: '' }).title === 'new text');
+
+  // O. EN/ES labels present and switch.
+  ok('O: noteEdit EN/ES', en('actionPlan.noteEdit') === 'Edit' && es('actionPlan.noteEdit') === 'Editar');
+  ok('O: noteSave EN/ES', en('actionPlan.noteSave') === 'Save' && es('actionPlan.noteSave') === 'Guardar');
+  ok('O: noteCancel EN/ES', en('actionPlan.noteCancel') === 'Cancel' && es('actionPlan.noteCancel') === 'Cancelar');
+  ok('O: dueDateLabel EN/ES', en('actionPlan.dueDateLabel') === 'Due date' && es('actionPlan.dueDateLabel') === 'Fecha límite');
+  ok('O: noDueDate EN/ES', en('actionPlan.noDueDate') === 'No due date' && es('actionPlan.noDueDate') === 'Sin fecha límite');
+  ok('O: noteEmpty differs', en('actionPlan.noteEmpty') !== es('actionPlan.noteEmpty') && en('actionPlan.noteEmpty') !== 'actionPlan.noteEmpty');
+  ok('O: noteSaveFailed interpolates ES', es('actionPlan.noteSaveFailed', { msg: 'x' }).includes('x'));
 } finally {
   await vite.close();
 }
