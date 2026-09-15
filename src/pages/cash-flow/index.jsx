@@ -23,8 +23,16 @@ import {
   validateSemiMonthly,
 } from '../../lib/recurringIncome';
 import { readAvailableCash, writeAvailableCash } from '../../lib/availableCash';
+import {
+  getOutsideHorizonCommitments,
+  summarizeOutsideHorizonCommitments,
+  parseCalendarDate,
+} from '../../lib/futureCommitments';
 
 const WINDOW_OPTIONS = [7, 14, 30];
+// Extended look-ahead for the "known payments outside this view" notice. Does
+// NOT change the projection horizon; only powers the informational notice.
+const EXTENDED_LOOKAHEAD_DAYS = 30;
 // Semi-monthly day picker options (1..31); 29–31 clamp to the real month end.
 const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1);
 const HISTORY_WEEKS = 8;
@@ -360,7 +368,7 @@ const nextMonthlyDateAfter = (lastDate, typicalDay, start) => {
 };
 
 const CashFlow = () => {
-  const { t } = useI18n();
+  const { t, formatDate } = useI18n();
   const { payments, loading: payLoading } = useScheduledPayments();
   const { transactions, loading: txLoading } = useTransactions(null, {
     filters: { dateRange: 'all' },
@@ -985,6 +993,19 @@ const CashFlow = () => {
   const horizonShort = isCustomToday ? t('flow.todayShort') : `${windowDays}d`;
   // Horizon phrase for "included in your {horizon} projection" style copy.
   const horizonPhrase = isCustomToday ? t('flow.horizonTodayPossessive') : t('flow.horizonDayShort', { days: windowDays });
+
+  // Future Commitment Visibility: known scheduled_payments due AFTER the current
+  // projection window but within the next 30 days. Informational only — these are
+  // NOT added to the projection (proj already excludes anything past windowEnd);
+  // they simply tell the user the commitment exists beyond the current view.
+  const outsideHorizon = useMemo(() => {
+    const list = getOutsideHorizonCommitments(payments, {
+      today: format(new Date(), 'yyyy-MM-dd'),
+      windowDays,
+      extendedDays: EXTENDED_LOOKAHEAD_DAYS,
+    });
+    return summarizeOutsideHorizonCommitments(list);
+  }, [payments, windowDays]);
   // Locale-aware timeline event-type label (canonical row.type unchanged).
   const eventTypeLabel = (type) => {
     const key = `flow.eventTypes.${type}`;
@@ -1742,6 +1763,42 @@ const CashFlow = () => {
                 </div>
               )}
             </div>
+
+            {/* KNOWN COMMITMENTS OUTSIDE THE CURRENT PROJECTION WINDOW.
+                Informational only — not included in the projected cash above.
+                "View 30 days" switches the existing horizon control to 30d. */}
+            {outsideHorizon.count > 0 && (
+              <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 shadow-sm p-4 flex items-start gap-3">
+                <div className="bg-primary/10 p-2 rounded-xl shrink-0">
+                  <Icon name="CalendarClock" size={20} className="text-primary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-foreground text-sm">
+                    {outsideHorizon.count === 1
+                      ? t('flow.outsideHorizonTitleOne', { days: windowDays })
+                      : t('flow.outsideHorizonTitleMany', { count: outsideHorizon.count, days: windowDays })}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    {outsideHorizon.count === 1
+                      ? t('flow.outsideHorizonSubOne', {
+                          amount: money(outsideHorizon.first.amount),
+                          date: (() => {
+                            const d = parseCalendarDate(outsideHorizon.first.payment_date);
+                            return d ? formatDate(d, { month: 'short', day: 'numeric' }) : outsideHorizon.first.payment_date;
+                          })(),
+                        })
+                      : t('flow.outsideHorizonSubMany', { amount: money(outsideHorizon.total) })}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => selectPreset(30)}
+                  className="shrink-0 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90"
+                >
+                  {t('flow.viewThirtyDays')}
+                </button>
+              </div>
+            )}
 
             {/* FLOW -> ACTIVITY NEXT STEP (contextual, dismissible) */}
             {showActivityPrompt && (

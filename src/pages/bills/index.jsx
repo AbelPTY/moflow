@@ -53,7 +53,7 @@ const Bills = () => {
           </p>
         </div>
 
-        <UpcomingPaymentsCalendar extraEvents={cardCalendarEvents} />
+        <UpcomingPaymentsCalendar extraEvents={cardCalendarEvents} showUpcoming />
       </div>
     </div>
   );

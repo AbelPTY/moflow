@@ -402,6 +402,14 @@ export default {
     typicalVariableSpending: 'Gasto variable típico en efectivo, débito y tarjetas de crédito.',
     lookAheadLabel: 'Proyección',
     customDateInvalid: 'Elige una fecha de hoy en adelante para usarla como fin de tu pronóstico.',
+    // Visibilidad de compromisos futuros — aviso informativo para pagos conocidos
+    // que vencen DESPUÉS de esta ventana pero dentro de los próximos 30 días. No
+    // cambia el efectivo proyectado; "Ver 30 días" cambia el horizonte existente.
+    outsideHorizonTitleOne: '1 pago conocido fuera de esta vista de {days} días',
+    outsideHorizonTitleMany: '{count} pagos conocidos fuera de esta vista de {days} días',
+    outsideHorizonSubOne: '{amount} vence el {date}',
+    outsideHorizonSubMany: '{amount} vencen en los próximos 30 días',
+    viewThirtyDays: 'Ver 30 días',
     longRangeNote: 'Las proyecciones a más largo plazo son inherentemente menos certeras: el gasto diario esperado se estima de tu historial reciente, no está garantizado.',
     loadingCashFlow: 'Cargando flujo de caja…',
     cashPositionToday: 'Posición de efectivo estimada a hoy.',
@@ -509,6 +517,9 @@ export default {
     statementSuffix: 'estado de cuenta',
     emptyState: 'Aún no hay pagos — agrega tu primer pago para verlo aquí.',
     upcomingPayments: 'Próximos pagos',
+    // Visibilidad de compromisos futuros — resumen sobre el calendario (independiente del mes).
+    upcomingTitle: 'Pagos próximos',
+    noUpcoming: 'No hay pagos próximos',
     today: 'Hoy',
     noPaymentsScheduled: 'No hay pagos programados.',
     paidCard: 'Pagado · Tarjeta',

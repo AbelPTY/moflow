@@ -15,9 +15,10 @@ import Icon from './AppIcon';
 import Button from './ui/Button';
 import useScheduledPayments from '../hooks/useScheduledPayments';
 import { nextScheduledPaymentDate, recurrenceForMonthlyFlag } from '../lib/scheduledRecurrence';
+import { getUpcomingScheduledPayments, parseCalendarDate } from '../lib/futureCommitments';
 import { useI18n } from '../i18n';
 
-const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
+const UpcomingPaymentsCalendar = ({ extraEvents = [], showUpcoming = false }) => {
   const { t, formatDate } = useI18n();
   // Localized weekday abbreviations (Sun..Sat), from a known reference week.
   const weekdayLabels = Array.from({ length: 7 }, (_, i) => formatDate(new Date(2023, 0, 1 + i), { weekday: 'short' }));
@@ -71,6 +72,15 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
   // (due within the next 7 days) -- surfaced as a banner so this doesn't
   // require remembering to open the calendar and click through months.
   const todayString = format(new Date(), 'yyyy-MM-dd');
+
+  // Future Commitment Visibility: the next few pending future commitments from
+  // scheduled_payments, independent of the month currently displayed. Recurring
+  // and one-time both included; rail/payment method is irrelevant.
+  const upcomingSummary = useMemo(
+    () => getUpcomingScheduledPayments(payments, todayString, 5),
+    [payments, todayString]
+  );
+
   const reminderSummary = useMemo(() => {
     const overdue = [];
     const upcoming = [];
@@ -340,6 +350,57 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
     </div>
   );
 
+  // Jump the calendar to a payment's date (optional convenience; no refactor).
+  const focusPaymentDate = (payment) => {
+    const d = parseCalendarDate(payment.payment_date);
+    if (!d) return;
+    setCurrentDate(d);
+    setSelectedDate(d);
+    setEditingId(null);
+  };
+
+  const renderUpcomingSummary = () => {
+    if (!showUpcoming) return null;
+    return (
+      <div className="mb-4 rounded-lg border border-border bg-muted/20 p-4">
+        <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">
+          {t('bills.upcomingTitle')}
+        </p>
+        {upcomingSummary.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic">{t('bills.noUpcoming')}</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {upcomingSummary.map((p) => {
+              const d = parseCalendarDate(p.payment_date);
+              const dateLabel = d ? formatDate(d, { month: 'short', day: 'numeric' }) : p.payment_date;
+              const freq = p.recurrence_frequency;
+              return (
+                <li key={p.id || `${p.entity}-${p.payment_date}`}>
+                  <button
+                    type="button"
+                    onClick={() => focusPaymentDate(p)}
+                    className="w-full flex items-center justify-between gap-3 py-2 text-left hover:bg-muted/40 rounded-md px-1 transition-colors"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground truncate">{p.entity}</span>
+                      <span className="block text-[11px] text-muted-foreground">
+                        {t('bills.dueOn', { date: dateLabel })}
+                        {freq ? ` · ${t(`addToPayments.freq.${freq}`)}` : ''}
+                      </span>
+                    </span>
+                    <span className="font-mono font-bold text-sm text-foreground shrink-0">
+                      ${Number(p.amount || 0).toFixed(2)}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    );
+  };
+
   const renderReminderBanner = () => {
     const { overdue, upcoming, overdueTotal, upcomingTotal } = reminderSummary;
     if (overdue.length === 0 && upcoming.length === 0) return null;
@@ -368,6 +429,7 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [] }) => {
 
   return (
     <div className="bg-card p-6 rounded-xl shadow-elevation-2 border border-border w-full flex flex-col">
+      {renderUpcomingSummary()}
       {renderReminderBanner()}
       <div className="flex flex-col lg:flex-row">
         <div className="flex-1">

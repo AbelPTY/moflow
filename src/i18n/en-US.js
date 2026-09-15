@@ -410,6 +410,14 @@ export default {
     typicalVariableSpending: 'Typical variable spending across cash, debit, and credit cards.',
     lookAheadLabel: 'Look ahead',
     customDateInvalid: 'Pick a date that is today or later to use it as your forecast end.',
+    // Future Commitment Visibility — informational notice for known payments due
+    // AFTER this projection window but within the next 30 days. It does not change
+    // the projected cash figure; "View 30 days" switches the existing horizon.
+    outsideHorizonTitleOne: '1 known payment outside this {days}-day view',
+    outsideHorizonTitleMany: '{count} known payments outside this {days}-day view',
+    outsideHorizonSubOne: '{amount} due {date}',
+    outsideHorizonSubMany: '{amount} due within the next 30 days',
+    viewThirtyDays: 'View 30 days',
     longRangeNote: 'Longer-range projections are inherently less certain: expected everyday spending is estimated from your recent history, not guaranteed.',
     loadingCashFlow: 'Loading cash flow…',
     cashPositionToday: 'Estimated cash position as of today.',
@@ -517,6 +525,9 @@ export default {
     statementSuffix: 'statement',
     emptyState: 'No bills yet — add your first payment to see it here.',
     upcomingPayments: 'Upcoming Payments',
+    // Future Commitment Visibility — summary above the calendar (month-independent).
+    upcomingTitle: 'Upcoming payments',
+    noUpcoming: 'No upcoming payments',
     today: 'Today',
     noPaymentsScheduled: 'No payments scheduled.',
     paidCard: 'Paid · Card',
