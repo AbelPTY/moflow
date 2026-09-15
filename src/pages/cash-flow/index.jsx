@@ -393,6 +393,10 @@ const CashFlow = () => {
   // scanned total is applied only when the user explicitly confirms; it reuses
   // the existing setCash (cashflow_available_cash) — never auto-overwritten.
   const [showBalanceScanner, setShowBalanceScanner] = useState(false);
+  // When set, the scanner opens in account-centric mode targeting this account;
+  // null = the bulk multi-account scanner. Hosted in a modal so it appears
+  // immediately regardless of scroll position.
+  const [scanTarget, setScanTarget] = useState(null);
   const [balanceApplied, setBalanceApplied] = useState(false);
   // Bumped when account balances are persisted, to refresh the Cash accounts panel.
   const [accountsRefreshKey, setAccountsRefreshKey] = useState(0);
@@ -1439,9 +1443,10 @@ const CashFlow = () => {
             <button
               type="button"
               onClick={() => {
-                const opening = !showBalanceScanner;
+                const opening = !(showBalanceScanner && !scanTarget);
                 if (opening) {
                   setBalanceApplied(false);
+                  setScanTarget(null); // bulk mode
                   trackProductEvent('balance_scan_started', { source_screen: 'flow' });
                 }
                 setShowBalanceScanner(opening);
@@ -1675,6 +1680,12 @@ const CashFlow = () => {
             setCash(String(Math.round((Number(total) || 0) * 100) / 100));
             setBalanceApplied(true);
           }}
+          onScan={(account) => {
+            setScanTarget(account);
+            setBalanceApplied(false);
+            trackProductEvent('balance_scan_started', { source_screen: 'flow' });
+            setShowBalanceScanner(true);
+          }}
         />
 
         <ExtraIncomePanel
@@ -1685,18 +1696,28 @@ const CashFlow = () => {
         />
 
         {showBalanceScanner && (
-          <div className="mb-6">
-            <BalanceScanner
-              onApply={(total) => {
-                setCash(String(Math.round((Number(total) || 0) * 100) / 100));
-                updateOnboarding({ balanceScanCompleted: true });
-                trackProductEvent('balance_scan_applied', { source_screen: 'flow' });
-                setBalanceApplied(true);
-                setShowBalanceScanner(false);
-              }}
-              onBalancesUpdated={() => setAccountsRefreshKey((k) => k + 1)}
-              onClose={() => setShowBalanceScanner(false)}
-            />
+          <div
+            className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/40 p-4 overflow-y-auto"
+            onClick={() => { setShowBalanceScanner(false); setScanTarget(null); }}
+          >
+            <div
+              className="w-full max-w-2xl my-8"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <BalanceScanner
+                targetAccount={scanTarget}
+                onApply={(total) => {
+                  setCash(String(Math.round((Number(total) || 0) * 100) / 100));
+                  updateOnboarding({ balanceScanCompleted: true });
+                  trackProductEvent('balance_scan_applied', { source_screen: 'flow' });
+                  setBalanceApplied(true);
+                  setShowBalanceScanner(false);
+                  setScanTarget(null);
+                }}
+                onBalancesUpdated={() => setAccountsRefreshKey((k) => k + 1)}
+                onClose={() => { setShowBalanceScanner(false); setScanTarget(null); }}
+              />
+            </div>
           </div>
         )}
 

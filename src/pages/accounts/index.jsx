@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import PrimaryNavBar from '../../components/navigation/PrimaryNavBar';
 import Icon from '../../components/AppIcon';
 import useAccounts from '../../hooks/useAccounts';
@@ -43,6 +44,25 @@ const AccountsManager = () => {
     });
   };
   const change = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Deep link: /accounts?edit=<id> (e.g. from Flow's per-account "Edit") opens
+  // the existing manual editor for that account once, then clears the param so a
+  // later manual close isn't reopened. No new edit UI — it reuses openEdit.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const consumedEditParam = useRef(false);
+  useEffect(() => {
+    if (consumedEditParam.current) return;
+    const editId = searchParams.get('edit');
+    if (!editId || loading) return;
+    const acct = (accounts || []).find((a) => String(a.id) === String(editId));
+    if (acct) {
+      consumedEditParam.current = true;
+      openEdit(acct);
+      const next = new URLSearchParams(searchParams);
+      next.delete('edit');
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, accounts, loading, setSearchParams]);
 
   const save = async () => {
     if (!form.account_name.trim()) { setErr(t('accounts.nameRequired')); return; }

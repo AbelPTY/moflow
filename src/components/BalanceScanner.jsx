@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import Icon from './AppIcon';
 import { authHeader } from '../lib/apiClient';
 import { dedupeDetectedAccounts, isEligibleCashType, mergeAccountOptions, matchAccountByName } from '../lib/accountOptions';
+import { targetedCandidateRows, detectTargetConflict, buildTargetedBalanceUpdate } from '../lib/balanceScan';
 import useAccounts from '../hooks/useAccounts';
 import { useI18n } from '../i18n';
 
@@ -35,8 +36,13 @@ const MAX_IMAGES = 5;
 
 const todayStr = () => new Date().toISOString().split('T')[0];
 
-const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
+// `targetAccount` (optional) switches the scanner into account-centric mode: the
+// user is updating ONE known account, so the review is simplified and the write
+// targets that account's id only. When absent, the scanner behaves exactly as the
+// original bulk multi-account scanner (unchanged for every existing caller).
+const BalanceScanner = ({ onApply, onClose, onBalancesUpdated, targetAccount = null }) => {
   const { t } = useI18n();
+  const isTargeted = !!(targetAccount && targetAccount.id);
   const fileInputRef = useRef(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState('');
@@ -44,6 +50,10 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
   const [images, setImages] = useState([]); // compressed dataURLs for a session
   const [savingBalances, setSavingBalances] = useState(false);
   const [balancesNote, setBalancesNote] = useState('');
+  // Targeted mode: which detected candidate row the user picked, and its editable
+  // balance. Initialized after a scan resolves candidates.
+  const [targetRowId, setTargetRowId] = useState(null);
+  const [targetBalance, setTargetBalance] = useState('');
 
   // First-class accounts the user already created, so each detected balance row
   // can be associated with a real account (e.g. "Banco General Checking") rather
@@ -141,6 +151,17 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
       setRows(mapped);
       if (mapped.length === 0) {
         setError(t('balanceScanner.noDetected'));
+      } else if (isTargeted) {
+        // Preselect the first non-credit candidate for the target account; the
+        // user can switch selection or edit the value before confirming. We never
+        // auto-write, and never write more than the single target account.
+        const candidates = targetedCandidateRows(mapped);
+        if (candidates.length === 0) {
+          setError(t('balanceScanner.noDetected'));
+        } else {
+          setTargetRowId(candidates[0].id);
+          setTargetBalance(String(candidates[0].balance ?? ''));
+        }
       }
     } catch (err) {
       setError(t('balanceScanner.couldNotRead') + (err?.message || ''));
@@ -190,11 +211,42 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
       }
       if (batch.length) await updateAccountBalances(batch);
       const total = batch.length + created;
-      setBalancesNote(`Saved ${total} account balance${total === 1 ? '' : 's'}${created ? ` (${created} new account${created === 1 ? '' : 's'})` : ''}.`);
+      const savedMsg = total === 1
+        ? t('balanceScanner.savedOne')
+        : t('balanceScanner.savedMany', { count: total });
+      const newMsg = created > 0
+        ? (created === 1 ? t('balanceScanner.savedNewOne') : t('balanceScanner.savedNewMany', { count: created }))
+        : '';
+      setBalancesNote(newMsg ? `${savedMsg} ${newMsg}` : savedMsg);
       if (onBalancesUpdated) onBalancesUpdated();
     } catch (e) {
       setBalancesNote(t('balanceScanner.someBalancesFailed', { msg: e?.message || e }));
     } finally {
+      setSavingBalances(false);
+    }
+  };
+
+  // Targeted mode: write the confirmed balance to the TARGET account only, by id.
+  // Never calls onApply/setCash (Available Cash is untouched) and never writes any
+  // other account, even if the screenshot showed several. current_balance = 0 is a
+  // valid write.
+  const persistTargetBalance = async () => {
+    const update = buildTargetedBalanceUpdate(targetAccount, targetBalance, todayStr());
+    if (!update) {
+      setBalancesNote(t('balanceScanner.noEligibleToSave'));
+      return;
+    }
+    setSavingBalances(true);
+    setBalancesNote('');
+    try {
+      await updateAccountBalance(update.id, {
+        current_balance: update.current_balance,
+        balance_as_of: update.balance_as_of,
+      });
+      if (onBalancesUpdated) onBalancesUpdated();
+      if (onClose) onClose();
+    } catch (e) {
+      setBalancesNote(t('balanceScanner.someBalancesFailed', { msg: e?.message || e }));
       setSavingBalances(false);
     }
   };
@@ -222,7 +274,11 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
     <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-extrabold text-foreground">{t('balanceScanner.title')}</p>
+          <p className="font-extrabold text-foreground truncate">
+            {isTargeted
+              ? t('balanceScanner.targetHeader', { account: targetAccount.account_name })
+              : t('balanceScanner.title')}
+          </p>
           <p className="text-xs text-muted-foreground mt-0.5">
             {t('balanceScanner.subtitle')}
           </p>
@@ -306,6 +362,95 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated }) => {
           )}
           {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
         </div>
+      ) : isTargeted ? (
+        (() => {
+          const candidates = targetedCandidateRows(rows);
+          const selected = candidates.find((r) => r.id === targetRowId) || candidates[0] || null;
+          const conflict = selected ? detectTargetConflict(selected, targetAccount, accounts) : null;
+          return (
+            <div className="mt-4">
+              {candidates.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('balanceScanner.noDetected')}</p>
+              ) : (
+                <>
+                  {/* When several balances were detected, the user must pick which
+                      one belongs to the target account — we never batch-write. */}
+                  {candidates.length > 1 && (
+                    <div className="space-y-2 mb-3">
+                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        {t('balanceScanner.pickForTarget', { account: targetAccount.account_name })}
+                      </p>
+                      {candidates.map((r) => (
+                        <label key={r.id} className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer ${r.id === (selected && selected.id) ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}>
+                          <span className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="radio"
+                              name="target-row"
+                              checked={r.id === (selected && selected.id)}
+                              onChange={() => { setTargetRowId(r.id); setTargetBalance(String(r.balance ?? '')); }}
+                              className="w-4 h-4"
+                            />
+                            <span className="text-sm text-foreground truncate">{r.name || t('balanceScanner.accountNamePlaceholder')}</span>
+                          </span>
+                          <span className="text-sm font-bold text-foreground shrink-0">{formatCurrency(parseFloat(r.balance) || 0, r.currency)}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
+                  {conflict && (
+                    <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3">
+                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                        {t('balanceScanner.targetMismatch', { detected: conflict.detectedName, target: conflict.targetName })}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border border-border bg-card p-3">
+                    <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">
+                      {t('balanceScanner.detectedBalance')}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        value={targetBalance}
+                        onChange={(e) => setTargetBalance(e.target.value)}
+                        placeholder="0.00"
+                        className={`${inputCls} flex-1`}
+                      />
+                      <span className="text-xs font-bold text-muted-foreground w-14 text-center shrink-0">
+                        {selected ? selected.currency : (targetAccount.currency || 'USD')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {balancesNote && <p className="mt-2 text-xs text-red-600">{balancesNote}</p>}
+
+                  <div className="mt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="px-4 py-3 min-h-[48px] rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted"
+                    >
+                      {t('common.cancel')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={persistTargetBalance}
+                      disabled={savingBalances}
+                      className="px-5 py-3 min-h-[48px] rounded-xl bg-primary text-primary-foreground text-sm font-bold hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      {savingBalances ? t('balanceScanner.saving') : t('balanceScanner.confirmUpdate')}
+                    </button>
+                  </div>
+                </>
+              )}
+              {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+            </div>
+          );
+        })()
       ) : (
         <div className="mt-4">
           <p className="text-sm font-semibold text-foreground">

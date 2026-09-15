@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import Icon from '../../components/AppIcon';
 import useAccounts from '../../hooks/useAccounts';
 import {
   eligibleCashByCurrency,
@@ -13,7 +14,7 @@ import { useI18n } from '../../i18n';
 // apply to "Available cash now". It never changes available cash automatically,
 // never sums different currencies, and never treats a null balance as $0.
 
-export default function CashAccountsPanel({ onApply }) {
+export default function CashAccountsPanel({ onApply, onScan }) {
   const { accounts, loading } = useAccounts();
   const { t, formatCurrency } = useI18n();
   const money = (n, cur = 'USD') => formatCurrency(n, cur || 'USD');
@@ -53,8 +54,8 @@ export default function CashAccountsPanel({ onApply }) {
 
       <div className="divide-y divide-border">
         {eligible.map((a) => (
-          <div key={a.id} className="flex items-center justify-between gap-3 py-2">
-            <div className="min-w-0">
+          <div key={a.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2">
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-foreground truncate">{a.account_name}</p>
               <p className="text-[11px] text-muted-foreground">
                 {t(`accountTypes.${a.account_type}`)} · {a.currency || 'USD'}
@@ -66,6 +67,27 @@ export default function CashAccountsPanel({ onApply }) {
               ) : (
                 <span className="text-xs italic text-muted-foreground">{t('flow.balanceNotSet')}</span>
               )}
+            </div>
+            {/* Per-account actions: Scan opens the targeted balance scanner (parent-
+                hosted, so it appears immediately); Edit reuses the Accounts manual
+                editor via a deep link. Compact, min 44px tap targets, wrap on mobile. */}
+            <div className="flex items-center gap-2 shrink-0 basis-full sm:basis-auto justify-end">
+              <button
+                type="button"
+                onClick={() => onScan?.(a)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 min-h-[36px] rounded-lg border border-border text-xs font-bold text-foreground hover:bg-muted"
+              >
+                <Icon name="Camera" size={14} />
+                {t('flow.scanAccount')}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/accounts?edit=${encodeURIComponent(a.id)}`)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 min-h-[36px] rounded-lg border border-border text-xs font-bold text-foreground hover:bg-muted"
+              >
+                <Icon name="Edit2" size={14} />
+                {t('flow.editAccount')}
+              </button>
             </div>
           </div>
         ))}
