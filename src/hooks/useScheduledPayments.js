@@ -70,9 +70,16 @@ const useScheduledPayments = () => {
       throw error;
     }
 
-    if (data && data[0]) {
-      setPayments(prev => [...prev, { ...data[0], dateString: data[0].payment_date }]);
+    // An empty result with no error means the write did not persist a row (e.g.
+    // an RLS INSERT/SELECT policy silently blocked it). Treat that as a failure
+    // — mirroring updatePayment — so callers never report "Added to Payments"
+    // for a row that isn't actually in the database (and thus never reaches
+    // Bills or Flow). Do NOT update local state from an unpersisted write.
+    if (!data || data.length === 0) {
+      throw new Error('Payment was not saved (no row returned). Check that you are signed in and try again.');
     }
+
+    setPayments(prev => [...prev, { ...data[0], dateString: data[0].payment_date }]);
     return data;
   };
 

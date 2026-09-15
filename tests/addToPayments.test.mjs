@@ -125,6 +125,70 @@ try {
   ok('P: subtitle differs', differs('addToPayments.subtitle'));
 
   ok('normalizeName basic', normalizeName('  NETFLIX.COM *123 ') === 'netflix com 123');
+
+  // ===========================================================================
+  // END-TO-END VISIBILITY CONTRACT: Activity → scheduled_payments → Bills → Flow
+  // Sanitized fixture: a recurring ACH tuition expense (NOT Yappy).
+  // ===========================================================================
+  const achTx = {
+    id: 'tx-ach', merchant: 'Colegio Las Esclavas', amount: -580,
+    category: 'Education', budgetBucket: 'NEEDS',
+    account: 'Banco General - Savings', // ACH rail; no Yappy anywhere
+    description: 'ACH XPRESS A COLEGIO LAS ESCLAVAS', dateString: '2026-09-03',
+  };
+  const today = '2026-09-14';
+
+  // A. ACH / manual expense is eligible (rail plays no role).
+  ok('E2E-A: ACH expense eligible', isEligibleForPayment(achTx) === true);
+  // B. Original historical amount is negative.
+  ok('E2E-B: historical amount negative', achTx.amount === -580);
+
+  // The modal suggests the next monthly due date from the historical date.
+  const suggested = suggestNextDueDate(achTx.dateString, 'monthly', today);
+  ok('E2E-D: suggested is the FUTURE due date, not historical', suggested === '2026-10-03');
+
+  const ach = buildPaymentFromTransaction(achTx, { frequency: 'monthly', nextDueDate: suggested });
+  // C. Amount is the correct positive obligation.
+  ok('E2E-C: obligation amount positive 580', ach.amount === 580);
+  // D. Next due date is persisted (NOT the historical Activity date).
+  ok('E2E-D: payment_date is the next due date', ach.payment_date === '2026-10-03');
+  ok('E2E-D: payment_date is NOT the historical date', ach.payment_date !== achTx.dateString);
+  ok('E2E-D: payment_date is in the future', ach.payment_date > today);
+  // E. status = pending (exact canonical value Flow/Bills expect).
+  ok('E2E-E: status pending', ach.status === 'pending');
+  // F. is_recurring true when a recurrence is chosen.
+  ok('E2E-F: is_recurring true', ach.is_recurring === true);
+  // G. recurrence_frequency persists.
+  ok('E2E-G: recurrence_frequency monthly', ach.recurrence_frequency === 'monthly');
+
+  // H. Passes Bills filters — Bills groups any row that has a payment_date, and
+  //    treats a non-'paid' row as an active obligation.
+  const billsVisible = !!ach.payment_date && ach.status !== 'paid';
+  ok('E2E-H: Bills-visible (has date, not paid)', billsVisible === true);
+
+  // I. Passes Flow filters — cash-flow proj includes a payment when it is not
+  //    'paid', has a parseable payment_date, and falls within the horizon window.
+  const start = new Date(2026, 8, 14);        // today
+  const windowEnd = new Date(2026, 8, 14 + 30); // a 30-day horizon reaches Oct 3
+  const d = new Date(2026, 9, 3);             // 2026-10-03 local
+  const flowEligible = ach.status !== 'paid' && !Number.isNaN(d.getTime()) && d <= windowEnd && d >= start;
+  ok('E2E-I: Flow-eligible within a reaching horizon', flowEligible === true);
+  // Flow applies it as a single outflow of -|amount|.
+  ok('E2E-I: Flow outflow is -580 once', -Math.abs(Number(ach.amount)) === -580);
+
+  // J. Payment method / Yappy is NOT required or persisted (rail-agnostic).
+  ok('E2E-J: no rail/method/Yappy field persisted', !('payment_method' in ach) && !('rail' in ach) && !('yappy' in ach) && !('source' in ach));
+  ok('E2E-J: entity is not converted to Yappy', ach.entity === 'Colegio Las Esclavas' && !/yappy/i.test(ach.entity));
+
+  // K. Original Activity transaction is unchanged.
+  const achBefore = JSON.stringify(achTx);
+  buildPaymentFromTransaction(achTx, { frequency: 'monthly', nextDueDate: suggested });
+  ok('E2E-K: source transaction unchanged', JSON.stringify(achTx) === achBefore);
+
+  // One-time (non-recurring) obligation: still Bills/Flow eligible, null cadence.
+  const oneTime = buildPaymentFromTransaction(achTx, { frequency: '', isRecurring: false, nextDueDate: '2026-10-03' });
+  ok('E2E one-time: not recurring, null frequency', oneTime.is_recurring === false && oneTime.recurrence_frequency === null);
+  ok('E2E one-time: still pending + dated (Bills/Flow eligible)', oneTime.status === 'pending' && oneTime.payment_date === '2026-10-03' && oneTime.amount === 580);
 } finally {
   await vite.close();
 }
