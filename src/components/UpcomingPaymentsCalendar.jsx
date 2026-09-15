@@ -16,6 +16,7 @@ import Button from './ui/Button';
 import useScheduledPayments from '../hooks/useScheduledPayments';
 import { nextScheduledPaymentDate, recurrenceForMonthlyFlag } from '../lib/scheduledRecurrence';
 import { getUpcomingScheduledPayments, parseCalendarDate } from '../lib/futureCommitments';
+import { groupEventsByCalendarDate } from '../lib/calendarEvents';
 import { useI18n } from '../i18n';
 
 const UpcomingPaymentsCalendar = ({ extraEvents = [], showUpcoming = false }) => {
@@ -54,16 +55,14 @@ const UpcomingPaymentsCalendar = ({ extraEvents = [], showUpcoming = false }) =>
     [payments, extraEvents]
   );
 
-  const paymentsByDate = useMemo(() => {
-    const grouped = {};
-    allPayments.forEach(payment => {
-      const dStr = payment.payment_date;
-      if (!dStr) return;
-      if (!grouped[dStr]) grouped[dStr] = [];
-      grouped[dStr].push(payment);
-    });
-    return grouped;
-  }, [allPayments]);
+  // Markers are keyed by the normalized local calendar date (parseCalendarDate),
+  // NOT the raw payment_date string — so a stored value with any time/zone suffix
+  // still marks the correct day and never diverges from Flow's projection. The
+  // key format ('YYYY-MM-DD') matches the cell/selected-day keys below exactly.
+  const paymentsByDate = useMemo(
+    () => groupEventsByCalendarDate(allPayments),
+    [allPayments]
+  );
 
   const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
   const selectedPayments = paymentsByDate[selectedDateString] || [];
