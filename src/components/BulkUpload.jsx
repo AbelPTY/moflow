@@ -997,13 +997,13 @@ return (
 
         {parsedTransactions.length === 0 && activeTab === 'sheet' && (
           <div style={{ textAlign: 'center', padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
-            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectCsv')} <input type="file" accept=".csv,.xls,.xlsx" onChange={handleSpreadsheetUpload} style={{ display: 'none' }} /> </label>
+            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectCsv')} <input type="file" accept=".csv,text/csv,.xls,application/vnd.ms-excel,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={handleSpreadsheetUpload} style={{ display: 'none' }} /> </label>
           </div>
         )}
 
         {parsedTransactions.length === 0 && activeTab === 'pdf' && (
           <div style={{ textAlign: 'center', padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
-            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectPdf')} <input type="file" accept=".pdf" onChange={handlePdfUpload} style={{ display: 'none' }} /> </label>
+            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectPdf')} <input type="file" accept=".pdf,application/pdf" onChange={handlePdfUpload} style={{ display: 'none' }} /> </label>
           </div>
         )}
 
@@ -1032,7 +1032,7 @@ return (
         {parsedTransactions.length === 0 && activeTab === 'unfcu' && (
           <div style={{ textAlign: 'center', padding: '40px', border: '2px dashed var(--color-border)', borderRadius: '10px' }}>
             <p style={{ fontSize: '13px', color: 'var(--color-muted-foreground)', marginBottom: '15px' }}>{t('bulkUpload.unfcuHint')}</p>
-            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectUnfcu')} <input type="file" accept=".pdf" onChange={handleUnfcuPdfUpload} style={{ display: 'none' }} /> </label>
+            <label style={{ cursor: 'pointer', padding: '10px 20px', background: '#007AFF', color: 'white', borderRadius: '5px' }}> {t('bulkUpload.selectUnfcu')} <input type="file" accept=".pdf,application/pdf" onChange={handleUnfcuPdfUpload} style={{ display: 'none' }} /> </label>
           </div>
         )}
 

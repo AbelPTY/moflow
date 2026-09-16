@@ -14,6 +14,7 @@ import { buildUserEditMetadata, normalizeMerchant } from '../../lib/transactionI
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import RecentActivityScanner from '../../components/RecentActivityScanner';
+import BulkUpload from '../../components/BulkUpload';
 
 import CategorizationScopeDialog from '../../components/CategorizationScopeDialog';
 import CalibrationPanel from '../../components/CalibrationPanel';
@@ -217,6 +218,10 @@ const FinancialOverview = () => {
 
   // Recent-activity screenshot import lives here (Activity is its home).
   const [showActivityScanner, setShowActivityScanner] = useState(false);
+  // Statement FILE import (CSV/XLS/XLSX/PDF/HTML/UNFCU) reuses the existing
+  // BulkUpload modal — the "upload" half of "Scan or upload statement". No new
+  // parser or endpoint; just makes the file path reachable from Activity.
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const { updateOnboarding } = useOnboarding();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -455,7 +460,7 @@ const handleDeleteTransaction = async (tx) => {
           <div className="flex gap-2 items-center flex-wrap">
              <TransactionReview onChanged={refetch} />
              <Button variant="default" className="bg-primary hover:bg-primary/90 text-white h-10" iconName="ScanLine" iconPosition="left" onClick={() => setShowActivityScanner((s) => !s)}>
-               {t('activity.scanRecentActivity')}
+               {t('activity.scanOrUploadStatement')}
              </Button>
              <AccountFilterDropdown accounts={uniqueAccounts} selected={selectedAccounts} onChange={setSelectedAccounts}/>
              <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="bg-card border border-input rounded-lg p-2 text-sm font-medium shadow-sm h-10">
@@ -466,7 +471,7 @@ const handleDeleteTransaction = async (tx) => {
         </div>
 
         {showActivityScanner && (
-          <div className="mb-8">
+          <div className="mb-8 space-y-3">
             <RecentActivityScanner
               accounts={importAccountNames}
               onImported={() => {
@@ -476,8 +481,28 @@ const handleDeleteTransaction = async (tx) => {
               }}
               onClose={() => setShowActivityScanner(false)}
             />
+            {/* The "upload" half: reuse the existing BulkUpload importer for
+                statement FILES (CSV / XLS / XLSX / PDF / HTML / UNFCU). */}
+            <button
+              type="button"
+              onClick={() => setShowBulkImport(true)}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[48px] rounded-xl border border-border text-sm font-bold text-foreground hover:bg-muted"
+            >
+              <Icon name="FileUp" size={18} />
+              {t('activity.uploadStatementFile')}
+            </button>
           </div>
         )}
+
+        <BulkUpload
+          open={showBulkImport}
+          onClose={() => setShowBulkImport(false)}
+          onTransactionsAdded={() => {
+            trackProductEvent('activity_import_completed', { source_screen: 'activity' });
+            updateOnboarding({ activityImportCompleted: true });
+            if (refetch) refetch();
+          }}
+        />
 
         {/* KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
