@@ -121,7 +121,13 @@ const BalanceScanner = ({ onApply, onClose, onBalancesUpdated, targetAccount = n
         headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
         body: JSON.stringify({ images }),
       });
-      if (!resp.ok) throw new Error(resp.statusText || 'scan failed');
+      if (!resp.ok) {
+        // resp.statusText is empty over HTTP/2 (Vercel), so read the server's
+        // JSON { error } body and fall back to the status code -- otherwise the
+        // user only ever sees a generic "scan failed" with no cause.
+        const detail = await resp.json().catch(() => null);
+        throw new Error(detail?.error || `scan failed (${resp.status})`);
+      }
 
       const data = await resp.json();
       const accounts = Array.isArray(data?.accounts) ? data.accounts : [];
