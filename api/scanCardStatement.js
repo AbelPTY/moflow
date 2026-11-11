@@ -157,17 +157,6 @@ export default async function handler(req, res) {
 
     return res.status(200).json(parsed);
   } catch (error) {
-    // TEMP DIAGNOSTIC — remove after debugging. Logs only the runtime key
-    // LENGTH (never the value) and the Gemini HTTP status + human reason text
-    // (which carries no key/secret), so we can tell a bad/short key from an
-    // API-not-enabled / billing / quota rejection.
-    const diagMsg = String(error?.message || '');
-    const m = diagMsg.match(/\[(\d{3})[^\]]*\]\s*(.*)/);
-    console.error('scanCardStatement DIAG', {
-      keyLen: (process.env.GEMINI_API_KEY || '').length,
-      status: m ? m[1] : 'none',
-      reason: (m ? m[2] : diagMsg).slice(0, 120),
-    });
     console.error('scanCardStatement failed', safeError(error));
     return res.status(500).json({ error: 'Failed to process statement image' });
   }
